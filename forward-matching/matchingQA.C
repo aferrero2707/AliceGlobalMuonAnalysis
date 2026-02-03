@@ -8,26 +8,23 @@ constexpr int nPoints = 3;
 
 TH1* GetTH1(TFile* f, TString histname)
 {
-  return (TH1*)f->Get(histname);
-
-  // TString histname = TString::Format("ST%d/DE%d/Occupancy_B_XY_%d", station, de, de);
-  TKey* key = f->GetKey(histname);
-  std::cout << "histname: " << histname << "  key: " << key << std::endl;
-  if (!key)
-    return NULL;
-  return (TH1*)key->ReadObjectAny(TH1::Class());
+  TH1* result = (TH1*)f->Get(histname);
+  //std::cout << "histname: " << histname << " -> " << result << std::endl;
+  return result;
 }
 
 TH2* GetTH2(TFile* f, TString histname)
 {
-  return (TH2*)f->Get(histname);
+  TH2* result = (TH2*)f->Get(histname);
+  //std::cout << "histname: " << histname << " -> " << result << std::endl;
+  return result;
+}
 
-  // TString histname = TString::Format("ST%d/DE%d/Occupancy_B_XY_%d", station, de, de);
-  TKey* key = f->GetKey(histname);
-  std::cout << "histname: " << histname << "  key: " << key << std::endl;
-  if (!key)
-    return NULL;
-  return (TH2*)key->ReadObjectAny(TH2::Class());
+TH3* GetTH3(TFile* f, TString histname)
+{
+  TH3* result = (TH3*)f->Get(histname);
+  //std::cout << "histname: " << histname << " -> " << result << std::endl;
+  return result;
 }
 
 TH1F* GetGoodRankingFraction(TH2* rankingHist)
@@ -93,7 +90,7 @@ void MatchRankingCompareMatchingMethods(TFile* rootFile,
   legend->SetY1NDC(0.2);
   legend->SetY2NDC(0.5);
   std::vector<std::string> variables{
-    "P", "Pt"};
+    "P", "Pt", "McParticleDz", "MftTrackMult", "MftTrackType", "DeltaChi2"};
   for (auto variable : variables) {
     legend->Clear();
     c.Clear();
@@ -117,11 +114,13 @@ void MatchRankingCompareMatchingMethods(TFile* rootFile,
 }
 
 void MatchingScoreCompareMatchingMethods(TFile* rootFile,
-                                         const std::vector<std::string>& matchingMethods,
-                                         std::string histName)
+    const std::vector<std::string>& matchingMethods,
+    std::string histName,
+    std::vector<int> matchTypeBins,
+    std::string histTitle)
 {
-  TH1* h1;
-  TH2* h2;
+  TH1* h1{nullptr};
+  TH2* h2{nullptr};
   TLegend* legend = new TLegend(0.15, 0.8, 0.85, 0.9);
   legend->SetNColumns(3);
 
@@ -135,13 +134,23 @@ void MatchingScoreCompareMatchingMethods(TFile* rootFile,
   std::vector<TH1*> ch1vec;
   for (auto method : matchingMethods) {
     std::string path = std::string("qa-matching/matching/MC/") + method + "/";
-    h1 = GetTH1(rootFile, (path + histName).c_str());
+    h2 = GetTH2(rootFile, (path + histName).c_str());
+    h1 = nullptr;
+    for (auto bin : matchTypeBins) {
+      if (h1) {
+        h1->Add((TH1*)h2->ProjectionY((path + histName + std::to_string(bin)).c_str(), bin, bin));
+      } else {
+        h1 = (TH1*)h2->ProjectionY((path + histName + std::to_string(bin)).c_str(), bin, bin);
+        h1->SetTitle(histTitle.c_str());
+      }
+    }
     if (h1->GetMaximum() > max) {
       max = h1->GetMaximum();
     }
     h1vec.push_back(h1);
 
     TH1F* ch1 = (TH1F*)h1->Clone();
+    ch1->SetTitle((histTitle + " (cumulative)").c_str());
     float integral = h1->Integral();
     int binMax = h1->GetXaxis()->GetNbins();
     for (int bin = 1; bin <= h1->GetXaxis()->GetNbins(); bin++) {
@@ -163,7 +172,9 @@ void MatchingScoreCompareMatchingMethods(TFile* rootFile,
     legend->AddEntry(hist, matchingMethods[i].c_str(), "l");
   }
   legend->Draw();
+  c.SetLogy(kTRUE);
   c.SaveAs("matchingQA.pdf");
+  c.SetLogy(kFALSE);
 
   for (int i = 0; i < ch1vec.size(); i++) {
     auto* hist = ch1vec[i];
@@ -185,11 +196,14 @@ void MatchingScoreCompareMatchingMethods(TFile* rootFile,
 void MatchingScoreCompareVsVariable(TFile* rootFile,
                                     std::string matchingMethod,
                                     std::string histName,
+                                    std::vector<int> matchTypeBins,
+                                    std::string histTitle,
                                     std::string variable,
                                     const std::vector<std::pair<double, double>> ranges)
 {
   TH1* h1;
   TH2* h2;
+  TH3* h3;
   TLegend* legend = new TLegend(0.15, 0.8, 0.85, 0.9);
   legend->SetNColumns(3);
 
@@ -202,13 +216,24 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
   // cumulative distributions
   std::vector<TH1*> ch1vec;
   std::string path = std::string("qa-matching/matching/MC/") + matchingMethod + "/";
-  h2 = GetTH2(rootFile, (path + histName + "Vs" + variable).c_str());
+  h3 = GetTH3(rootFile, (path + histName + "Vs" + variable).c_str());
 
   for (const auto& range : ranges) {
-    h1 = h2->ProjectionY(
-      TString::Format("%g<%s<%g", range.first,variable.c_str(), range.second).Data(),
-      h2->GetXaxis()->FindBin(range.first),
-      h2->GetXaxis()->FindBin(range.second) - 1);
+    h1 = nullptr;
+    for (auto bin : matchTypeBins) {
+      if (h1) {
+        h1->Add((TH1*)h3->ProjectionZ(TString::Format("%g<%s<%g", range.first, variable.c_str(), range.second).Data(),
+            h3->GetXaxis()->FindBin(range.first),
+            h3->GetXaxis()->FindBin(range.second) - 1,
+            bin, bin));
+      } else {
+        h1 = (TH1*)h3->ProjectionZ(TString::Format("%g<%s<%g", range.first, variable.c_str(), range.second).Data(),
+            h3->GetXaxis()->FindBin(range.first),
+            h3->GetXaxis()->FindBin(range.second) - 1,
+            bin, bin);
+        h1->SetTitle(histTitle.c_str());
+      }
+    }
 
     h1->Scale(1.0 / h1->Integral()); // noramalize to 1
     if (h1->GetMaximum() > max) {
@@ -217,6 +242,7 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
     h1vec.push_back(h1);
 
     TH1F* ch1 = (TH1F*)h1->Clone();
+    ch1->SetTitle((histTitle + " (cumulative)").c_str());
     float integral = h1->Integral();
     int binMax = h1->GetXaxis()->GetNbins();
     for (int bin = 1; bin <= h1->GetXaxis()->GetNbins(); bin++) {
@@ -239,7 +265,9 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
     legend->AddEntry(hist, hist->GetName(), "l");
   }
   legend->Draw();
+  c.SetLogy(kTRUE);
   c.SaveAs("matchingQA.pdf");
+  c.SetLogy(kFALSE);
 
   legend->Clear();
   for (int i = 0; i < ch1vec.size(); i++) {
@@ -283,7 +311,7 @@ void PlotMatchRanking(TFile* rootFile)
   title->AddText("Good MCH tracks");
   title->Draw();
   c.SaveAs("matchingQA.pdf");
-  MatchRankingCompareMatchingMethods(rootFile, matchingMethods, "trueMatchRankingGoodMCH");
+  MatchRankingCompareMatchingMethods(rootFile, matchingMethods, "matchRankingGoodMCH");
 
   c.Clear();
   title->Clear();
@@ -291,15 +319,46 @@ void PlotMatchRanking(TFile* rootFile)
   title->AddText("Good MCH tracks, paired with MFT");
   title->Draw();
   c.SaveAs("matchingQA.pdf");
-  MatchRankingCompareMatchingMethods(rootFile, matchingMethods, "trueMatchRankingGoodPairedMCH");
+  MatchRankingCompareMatchingMethods(rootFile, matchingMethods, "matchRankingPairedGoodMCH");
+
+  h2 = GetTH2(rootFile, std::string("qa-matching/matching/MC/Prod/matchScoreVsType").c_str());
+  if (h2) {
+    c.Clear();
+    title->Clear();
+    title->AddText("Matching score distribution");
+    title->Draw();
+    c.SaveAs("matchingQA.pdf");
+
+    c.Clear();
+    c.SetLogz(kTRUE);
+    h2->Draw("col");
+    c.SaveAs("matchingQA.pdf");
+    c.SetLogz(kFALSE);
+  }
 
   c.Clear();
   title->Clear();
   title->AddText("Matching score distribution");
-  title->AddText("Good MCH tracks, all particles");
+  title->AddText("Good MCH tracks, true matches");
   title->Draw();
   c.SaveAs("matchingQA.pdf");
-  MatchingScoreCompareMatchingMethods(rootFile, matchingMethods, "trueMatchScore");
+  MatchingScoreCompareMatchingMethods(rootFile, matchingMethods, "matchScoreVsType", {1, 5}, "Match score - true matches");
+
+  c.Clear();
+  title->Clear();
+  title->AddText("Matching score distribution");
+  title->AddText("Good MCH tracks, wrong matches");
+  title->Draw();
+  c.SaveAs("matchingQA.pdf");
+  MatchingScoreCompareMatchingMethods(rootFile, matchingMethods, "matchScoreVsType", {2, 6}, "Match score - wrong matches");
+
+  c.Clear();
+  title->Clear();
+  title->AddText("Matching score distribution");
+  title->AddText("Good MCH tracks, decay matches");
+  title->Draw();
+  c.SaveAs("matchingQA.pdf");
+  MatchingScoreCompareMatchingMethods(rootFile, matchingMethods, "matchScoreVsType", {3, 7}, "Match score - decay matches");
 
   c.Clear();
   title->Clear();
@@ -307,7 +366,7 @@ void PlotMatchRanking(TFile* rootFile)
   title->AddText("Good MCH tracks, fake matches");
   title->Draw();
   c.SaveAs("matchingQA.pdf");
-  MatchingScoreCompareMatchingMethods(rootFile, matchingMethods, "fakeMatchScore");
+  MatchingScoreCompareMatchingMethods(rootFile, matchingMethods, "matchScoreVsType", {4, 8}, "Match score - fake matches");
 
   // beginning of my additions
   // opt for per method comparison of p ranges for simplicity, can of course swap toper p range comparison of methods if desired
@@ -316,10 +375,30 @@ void PlotMatchRanking(TFile* rootFile)
     c.Clear();
     title->Clear();
     title->AddText(("Matching score distribution, for " + entry).c_str());
-    title->AddText(("Good MCH tracks, all particles, for " + entry).c_str());
+    title->AddText(("Good MCH tracks, true matches, for " + entry).c_str());
     title->Draw();
     c.SaveAs("matchingQA.pdf");
-    MatchingScoreCompareVsVariable(rootFile, entry, "trueMatchScore", "P", ranges);
+    MatchingScoreCompareVsVariable(rootFile, entry, "matchScoreVsType", {1, 5}, "Match score - true matches", "P", ranges);
+  }
+
+  for (std::string entry : matchingMethods) {
+    c.Clear();
+    title->Clear();
+    title->AddText(("Matching score distribution, P dependence, for " + entry).c_str());
+    title->AddText(("Good MCH tracks, wrong matches, P dependence for " + entry).c_str());
+    title->Draw();
+    c.SaveAs("matchingQA.pdf");
+    MatchingScoreCompareVsVariable(rootFile, entry, "matchScoreVsType", {2, 6}, "Match score - wrong matches", "P", ranges);
+  }
+
+  for (std::string entry : matchingMethods) {
+    c.Clear();
+    title->Clear();
+    title->AddText(("Matching score distribution, P dependence, for " + entry).c_str());
+    title->AddText(("Good MCH tracks, decay matches, P dependence for " + entry).c_str());
+    title->Draw();
+    c.SaveAs("matchingQA.pdf");
+    MatchingScoreCompareVsVariable(rootFile, entry, "matchScoreVsType", {3, 7}, "Match score - decay matches", "P", ranges);
   }
 
   for (std::string entry : matchingMethods) {
@@ -329,16 +408,130 @@ void PlotMatchRanking(TFile* rootFile)
     title->AddText(("Good MCH tracks, fake matches, P dependence for " + entry).c_str());
     title->Draw();
     c.SaveAs("matchingQA.pdf");
-    MatchingScoreCompareVsVariable(rootFile, entry, "fakeMatchScore", "P", ranges);
-    
+    MatchingScoreCompareVsVariable(rootFile, entry, "matchScoreVsType", {4, 8}, "Match score - fake matches", "P", ranges);
   }
+}
+
+
+TH1* GetInvmassForMatchTypes(TH2* hist2, std::vector<int> types)
+{
+  TH1* result{nullptr};
+  for (auto type : types) {
+    int ybin = hist2->GetYaxis()->FindBin(type);
+    if (!result) {
+      result = (TH1*)hist2->ProjectionX(TString::Format("%s_%d", hist2->GetName(), type), ybin, ybin);
+    } else {
+      TH1* proj = (TH1*)hist2->ProjectionX(TString::Format("%s_%d", hist2->GetName(), type), ybin, ybin);
+      result->Add(proj);
+    }
+  }
+  return result;
+}
+
+
+void PlotInvmassForMatchTypes(TFile* rootFile, std::vector<int> types)
+{
+  std::string typesstr;
+  for (auto type : types) {
+    if (typesstr.empty()) {
+      typesstr = std::format("{:02d}", type);
+    } else {
+      typesstr += std::format("+{:02d}", type);
+    }
+  }
+
+  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
+  c.Clear();
+  title->Clear();
+  title->AddText(TString::Format("type = %s", typesstr.c_str()));
+  title->Draw();
+  c.SaveAs("matchingQA.pdf");
+
+  c.Clear();
+
+  TH2* h2 = GetTH2(rootFile, "qa-matching/dimuon/MC/invariantMass_MuonKine_GlobalMuonCuts_vs_match_type");
+  TH1* h1 = GetInvmassForMatchTypes(h2, types);
+  if (h1) {
+    h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->Draw();
+    c.SaveAs("matchingQA.pdf");
+  }
+
+  h2 = GetTH2(rootFile, "qa-matching/dimuon/MC/invariantMass_ScaledMftKine_GlobalMuonCuts_vs_match_type");
+  h1 = GetInvmassForMatchTypes(h2, types);
+  if (h1) {
+    h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->Draw();
+    c.SaveAs("matchingQA.pdf");
+  }
+
+  h2 = GetTH2(rootFile, "qa-matching/dimuon/MC/invariantMass_MuonKine_GlobalMuonCuts_GoodMatches_vs_match_type");
+  h1 = GetInvmassForMatchTypes(h2, types);
+  if (h1) {
+    h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->Draw();
+    c.SaveAs("matchingQA.pdf");
+  }
+
+  h2 = GetTH2(rootFile, "qa-matching/dimuon/MC/invariantMass_ScaledMftKine_GlobalMuonCuts_GoodMatches_vs_match_type");
+  h1 = GetInvmassForMatchTypes(h2, types);
+  if (h1) {
+    h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->Draw();
+    c.SaveAs("matchingQA.pdf");
+  }
+}
+
+void PlotInvmass(TFile* rootFile)
+{
+  c.SetGridx(false);
+  c.SetGridy(false);
+
+  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
+  c.Clear();
+  title->Clear();
+  title->AddText("Invariant mass distributions");
+  title->Draw();
+  c.SaveAs("matchingQA.pdf");
+
+  // ============
+  // Type 00
+  // ============
+  PlotInvmassForMatchTypes(rootFile, {0});
+
+  // ============
+  // Type 01+10
+  // ============
+  PlotInvmassForMatchTypes(rootFile, {1, 10});
+
+  // ============
+  // Type 11
+  // ============
+  PlotInvmassForMatchTypes(rootFile, {11});
+
+  // ============
+  // Type 02+20
+  // ============
+  PlotInvmassForMatchTypes(rootFile, {2, 20});
+
+  // ============
+  // Type 03+30
+  // ============
+  PlotInvmassForMatchTypes(rootFile, {3, 30});
+
+  // ============
+  // Type 33
+  // ============
+  PlotInvmassForMatchTypes(rootFile, {33});
+
 }
 
 void matchingQA()
 {
   TFile* fAnalysisResults;
 
-  fAnalysisResults = new TFile("O-O_DQ_LHC25i4.root");
+  //fAnalysisResults = new TFile("outputs/LHC25i4/AnalysisResults.root");
+  fAnalysisResults = new TFile("AnalysisResults.root");
 
   gStyle->SetOptStat(0);
   // gStyle->SetOptStat(1111);
@@ -347,6 +540,8 @@ void matchingQA()
   c.SaveAs("matchingQA.pdf(");
 
   PlotMatchRanking(fAnalysisResults);
+
+  PlotInvmass(fAnalysisResults);
 
   c.Clear();
   c.SaveAs("matchingQA.pdf)");
