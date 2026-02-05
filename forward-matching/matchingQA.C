@@ -27,28 +27,48 @@ TH3* GetTH3(TFile* f, TString histname)
   return result;
 }
 
-TH1F* GetGoodRankingFraction(TH2* rankingHist)
+TH1F* GetRankingFraction(TH2* rankingHist, int binNum)
 {
-  TH1F* hist = new TH1F((std::string(rankingHist->GetName()) + "-good-ranking-fraction").c_str(),
+  TH1F* hist = new TH1F((std::string(rankingHist->GetName()) + "-ranking-fraction-" + std::to_string(binNum)).c_str(),
                         rankingHist->GetTitle(),
                         rankingHist->GetXaxis()->GetNbins(),
                         rankingHist->GetXaxis()->GetXmin(),
                         rankingHist->GetXaxis()->GetXmax());
-  hist->SetTitle("Fraction of correctly ranked matches");
   hist->GetXaxis()->SetTitle(rankingHist->GetXaxis()->GetTitle());
 
   for (int i = 1; i <= rankingHist->GetXaxis()->GetNbins(); i++) {
     float total = 0;
-    for (int j = 2; j <= rankingHist->GetYaxis()->GetNbins(); j++) {
+    // sum all bins, including overflow
+    for (int j = 1; j <= rankingHist->GetYaxis()->GetNbins() + 1; j++) {
       total += rankingHist->GetBinContent(i, j);
     }
 
     // ratio between matches with correct ranking and all ranked matches
-    float fraction = (total > 0) ? rankingHist->GetBinContent(i, 2) / total : 0.f;
+    float fraction = (total > 0) ? rankingHist->GetBinContent(i, binNum) / total : 0.f;
     hist->SetBinContent(i, fraction);
   }
 
+  //hist->SetMinimum(0.5);
+
+  return hist;
+}
+
+TH1F* GetGoodRankingFraction(TH2* rankingHist)
+{
+  TH1F* hist = GetRankingFraction(rankingHist, 2);
+  hist->SetTitle("Fraction of correctly ranked matches");
   hist->SetMinimum(0.5);
+  hist->SetMaximum(1.05);
+
+  return hist;
+}
+
+TH1F* GetMissedRankingFraction(TH2* rankingHist)
+{
+  TH1F* hist = GetRankingFraction(rankingHist, 1);
+  hist->SetTitle("Fraction of missed matches");
+  hist->SetMinimum(0);
+  hist->SetMaximum(0.1);
 
   return hist;
 }
@@ -95,11 +115,34 @@ void MatchRankingCompareMatchingMethods(TFile* rootFile,
     legend->Clear();
     c.Clear();
     c.SetLogy(kFALSE);
+
     int index = 0;
     for (auto method : matchingMethods) {
       std::string path = std::string("qa-matching/matching/MC/") + method + "/";
       h2 = GetTH2(rootFile, (path + histName + "Vs" + variable).c_str());
+      if (false && method == matchingMethods.front()) {
+        h2->Draw("col");
+        c.SetLogz(kTRUE);
+        c.SaveAs("matchingQA.pdf");
+        c.SetLogz(kFALSE);
+      }
       h1 = GetGoodRankingFraction(h2);
+      h1->SetLineColor(index + 1);
+      if (index == 0)
+        h1->Draw();
+      else
+        h1->Draw("same");
+      legend->AddEntry(h1, method.c_str(), "l");
+      index += 1;
+    }
+    legend->Draw();
+    c.SaveAs("matchingQA.pdf");
+
+    index = 0;
+    for (auto method : matchingMethods) {
+      std::string path = std::string("qa-matching/matching/MC/") + method + "/";
+      h2 = GetTH2(rootFile, (path + histName + "Vs" + variable).c_str());
+      h1 = GetMissedRankingFraction(h2);
       h1->SetLineColor(index + 1);
       if (index == 0)
         h1->Draw();
@@ -222,14 +265,14 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
     h1 = nullptr;
     for (auto bin : matchTypeBins) {
       if (h1) {
-        h1->Add((TH1*)h3->ProjectionZ(TString::Format("%g<%s<%g", range.first, variable.c_str(), range.second).Data(),
-            h3->GetXaxis()->FindBin(range.first),
-            h3->GetXaxis()->FindBin(range.second) - 1,
+        h1->Add((TH1*)h3->ProjectionZ(TString::Format("%g<%s<%g_%d", range.first, variable.c_str(), range.second, bin).Data(),
+            h3->GetXaxis()->FindBin(range.first + 0.5f * h3->GetXaxis()->GetBinWidth(1)),
+            h3->GetXaxis()->FindBin(range.second - 0.5f * h3->GetXaxis()->GetBinWidth(1)),
             bin, bin));
       } else {
-        h1 = (TH1*)h3->ProjectionZ(TString::Format("%g<%s<%g", range.first, variable.c_str(), range.second).Data(),
-            h3->GetXaxis()->FindBin(range.first),
-            h3->GetXaxis()->FindBin(range.second) - 1,
+        h1 = (TH1*)h3->ProjectionZ(TString::Format("%g<%s<%g_%d", range.first, variable.c_str(), range.second, bin).Data(),
+            h3->GetXaxis()->FindBin(range.first + 0.5f * h3->GetXaxis()->GetBinWidth(1)),
+            h3->GetXaxis()->FindBin(range.second - 0.5f * h3->GetXaxis()->GetBinWidth(1)),
             bin, bin);
         h1->SetTitle(histTitle.c_str());
       }
@@ -294,7 +337,7 @@ void PlotMatchRanking(TFile* rootFile)
 
   TH1* h1;
   TH2* h2;
-  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6);
+  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
   TLegend* legend = new TLegend(0.6, 0.6, 0.9, 0.9);
   const std::vector<std::pair<double, double>> ranges = {
     {0.f, 10.f},
@@ -303,15 +346,6 @@ void PlotMatchRanking(TFile* rootFile)
     {20.f, 30.f},
     {30.f, 50.f},
     {50.f, 100.f}};
-
-  // true match ranking for good MCH tracks
-  c.Clear();
-  title->Clear();
-  title->AddText("True match ranking");
-  title->AddText("Good MCH tracks");
-  title->Draw();
-  c.SaveAs("matchingQA.pdf");
-  MatchRankingCompareMatchingMethods(rootFile, matchingMethods, "matchRankingGoodMCH");
 
   c.Clear();
   title->Clear();
@@ -409,6 +443,46 @@ void PlotMatchRanking(TFile* rootFile)
     title->Draw();
     c.SaveAs("matchingQA.pdf");
     MatchingScoreCompareVsVariable(rootFile, entry, "matchScoreVsType", {4, 8}, "Match score - fake matches", "P", ranges);
+  }
+}
+
+void PlotMatchType(TFile* rootFile)
+{
+  std::vector<std::string> matchingMethods{
+    "Prod",
+    "MatchXYPhiTanl",
+    "MatchXYPhiTanlMom"};
+
+  TH1* h1;
+  TH2* h2;
+  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
+  TLegend* legend = new TLegend(0.6, 0.6, 0.9, 0.9);
+  const std::vector<std::pair<double, double>> ranges = {
+    {0.f, 10.f},
+    {10.f, 15.f},
+    {15.f, 20.f},
+    {20.f, 30.f},
+    {30.f, 50.f},
+    {50.f, 100.f}};
+
+  for (auto matchingMethod : matchingMethods) {
+    // match type for good MCH tracks
+    c.Clear();
+    title->Clear();
+    title->AddText((std::string("Match type for ") + matchingMethod).c_str());
+    title->AddText("Good MCH tracks");
+    title->Draw();
+    c.SaveAs("matchingQA.pdf");
+
+    std::string path = std::string("qa-matching/matching/MC/") + matchingMethod + "/";
+    std::string histName = "matchType";
+    std::string variable = "P";
+    h2 = GetTH2(rootFile, (path + histName + "Vs" + variable).c_str());
+    c.Clear();
+    h2->Draw("col");
+    c.SetLogz(kTRUE);
+    c.SaveAs("matchingQA.pdf");
+    c.SetLogz(kFALSE);
   }
 }
 
@@ -539,7 +613,36 @@ void matchingQA()
 
   c.SaveAs("matchingQA.pdf(");
 
+  TH1* h1 = GetTH1(fAnalysisResults, "qa-matching/nTracksPerType");
+  c.Clear();
+  h1->Draw("HIST");
+  c.SaveAs("matchingQA.pdf");
+
+  h1 = GetTH1(fAnalysisResults, "qa-matching/tracksMultiplicityMFT");
+  c.Clear();
+  h1->GetXaxis()->SetRangeUser(1, h1->GetXaxis()->GetXmax());
+  h1->Draw("HIST");
+  c.SetLogx(kTRUE);
+  c.SetLogy(kTRUE);
+  c.SaveAs("matchingQA.pdf");
+  c.SetLogx(kFALSE);
+  c.SetLogy(kFALSE);
+
+  h1 = GetTH1(fAnalysisResults, "qa-matching/tracksMultiplicityMCH");
+  c.Clear();
+  h1->GetXaxis()->SetRangeUser(1, h1->GetXaxis()->GetXmax());
+  h1->Draw("HIST");
+  c.SetLogx(kTRUE);
+  c.SetLogy(kTRUE);
+  c.SaveAs("matchingQA.pdf");
+  c.SetLogx(kFALSE);
+  c.SetLogy(kFALSE);
+
+  c.Clear();
+
   PlotMatchRanking(fAnalysisResults);
+
+  PlotMatchType(fAnalysisResults);
 
   PlotInvmass(fAnalysisResults);
 
