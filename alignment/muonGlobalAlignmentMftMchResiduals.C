@@ -1,6 +1,7 @@
 #include <MFTTracking/Constants.h>
 
 TFile* fAnalysisResults;
+std::string pdfFileName;
 
 TH1* histDxVsY;
 
@@ -107,6 +108,11 @@ int getNumDEinChamber(int chIndex)
   return nDE;
 }
 
+int getDEindexInChamber(int deId)
+{
+  return (deId - 100) % 100;
+}
+
 int getChamberOffset(int chIndex)
 {
   int offset = 0;
@@ -114,6 +120,14 @@ int getChamberOffset(int chIndex)
     offset += getNumDEinChamber(c);
   }
   return offset;
+}
+
+int getDEindex(int deId)
+{
+  auto idx = getDEindexInChamber(deId);
+  int offset = getChamberOffset(getChamberIndex(deId));
+
+  return idx + offset;
 }
 
 int getDEFromIndex(int index)
@@ -241,7 +255,7 @@ void PlotDCAProjection(TH2* histogram2, float yMin, float yMax, int projRebin, T
 
       if (printFits) {
         projCorr->Draw("E");
-        c.SaveAs("residuals_AO2D.pdf");
+        c.SaveAs(pdfFileName.c_str());
       }
 
       mean = fcb.GetParameter(1);
@@ -274,9 +288,9 @@ void PlotDCAProjection(TH2* histogram2, float yMin, float yMax, int projRebin, T
   line2->Draw();
 
   std::cout << std::format("Slope: {:0.4f} mm / 10 m", linFit.GetParameter(1) * 1000 * 10) << std::endl;
-  //c.SaveAs("residuals_AO2D.pdf");
+  //c.SaveAs(pdfFileName.c_str());
   //histogramSigma->Draw("E");
-  //c.SaveAs("residuals_AO2D.pdf");
+  //c.SaveAs(pdfFileName.c_str());
 
   histDxVsY = histogramMean;
 }
@@ -372,7 +386,7 @@ std::pair<double, double> PlotDCAPhiProjection(TH2* histogram2, float yMin, floa
 
       if (printFits) {
         projCorr->Draw("E");
-        c.SaveAs("residuals_AO2D.pdf");
+        c.SaveAs(pdfFileName.c_str());
       }
 
       mean = fcb.GetParameter(1);
@@ -454,11 +468,11 @@ void PlotDCAPhiProjection3D(std::string histName, float yMin, float yMax, int pr
     proj->SetTitle(TString::Format("%s - z bin %d", histogram3->GetTitle(), bin));
     c.Clear();
     proj->Draw("col");
-    c.SaveAs("residuals_AO2D.pdf");
+    c.SaveAs(pdfFileName.c_str());
 
     c.Clear();
     auto amplitude = PlotDCAPhiProjection(proj, yMin, yMax, projRebin, c, phaseMin, phaseMax, printFits);
-    c.SaveAs("residuals_AO2D.pdf");
+    c.SaveAs(pdfFileName.c_str());
 
     //gr->AddPointError(histogram3->GetXaxis()->GetBinCenter(bin), amplitude.first, 0, amplitude.second);
     std::cout << std::format("Bin #{} -> {}", bin, histogram3->GetXaxis()->GetBinCenter(bin)) << std::endl;
@@ -612,7 +626,7 @@ void PlotDXYProjection(const char* fullHistName, const char* fullHistNameME, TH2
         proj->SetLineColor(kRed);
         proj->Draw("E");
         projME->Draw("L same");
-        c.SaveAs("residuals_AO2D.pdf");
+        c.SaveAs(pdfFileName.c_str());
       }
 
       if (subtractBackground)
@@ -690,7 +704,7 @@ void PlotDXYProjection(const char* fullHistName, const char* fullHistNameME, TH2
 
       if (printFits) {
         proj->Draw("E");
-        c.SaveAs("residuals_AO2D.pdf");
+        c.SaveAs(pdfFileName.c_str());
       }
 
       mean = fcb.GetParameter(1);
@@ -711,9 +725,9 @@ void PlotDXYProjection(const char* fullHistName, const char* fullHistNameME, TH2
     histogramSigma->SetBinError(bin, sigmaErr);
   }
   //histogramMean->Draw("E");
-  //c.SaveAs("residuals_AO2D.pdf");
+  //c.SaveAs(pdfFileName.c_str());
   //histogramSigma->Draw("E");
-  //c.SaveAs("residuals_AO2D.pdf");
+  //c.SaveAs(pdfFileName.c_str());
 
   histDxVsY = histogramMean;
 }
@@ -738,7 +752,7 @@ std::pair<double, double> PlotDXY(TH1* proj, TCanvas& c, std::string pdfName = "
   fgaus.SetParameter(3, 0);
   fgaus.SetParameter(4, 0);
   fgaus.SetParameter(5, 0);
-  proj->Fit("fgaus", "B");
+  proj->Fit("fgaus", "BQ");
 /*
   TF1 fcb("fcb","[0]*ROOT::Math::crystalball_function(x, [1], [2], [3], [4]) + [5]");
   fcb.SetParameters(100, 0.6, -2.13903e+06, 1, xPeak);
@@ -874,7 +888,7 @@ std::array<std::pair<double, double>, 2> PlotDXYvsDE(std::string histName, int c
     result[lr].second = fcb.GetParError(1);
   }
 
-  c.SaveAs("residuals_AO2D.pdf");
+  c.SaveAs(pdfFileName.c_str());
 
   PlotDXYProjection(fullHistName.c_str(), fullHistNameME.c_str(), histogram2, histogram2ME, scaleME, -5.0, 5.0, 8, c, false, printFits);
 
@@ -907,6 +921,18 @@ void PlotZTrend(int n, double* xv, std::array<std::array<std::pair<double, doubl
     TGraphErrors* gr = new TGraphErrors();
     gr->SetLineColor(colors[j]);
     gr->SetMarkerColor(colors[j]);
+    gr->SetMarkerStyle(kDot);
+    gr->SetMarkerSize(0);
+    gr->SetLineStyle(kDashed);
+    gr->AddPoint(0, dca[j].first);
+    gr->AddPoint(xv[0], values[j][0].first);
+    mg->Add(gr,"l");
+  }
+
+  for (int j = 0; j < quadrants.size(); j++) {
+    TGraphErrors* gr = new TGraphErrors();
+    gr->SetLineColor(colors[j]);
+    gr->SetMarkerColor(colors[j]);
     gr->SetMarkerStyle(markers[2]);
     gr->SetMarkerSize(2);
     gr->AddPoint(0, dca[j].first);
@@ -933,13 +959,18 @@ void PlotZTrend(int n, double* xv, std::array<std::array<std::pair<double, doubl
   mg->SetMinimum(ymin);
   mg->SetMaximum(ymax);
   legend->Draw();
-  c.SaveAs("residuals_AO2D.pdf");
+
+
+
+  c.SaveAs(pdfFileName.c_str());
 }
 
-void muonGlobalAlignmentMftMchResiduals()
+void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisResults.root", const char* _pdfFileName = "mftMchResiduals.pdf")
 {
   //fAnalysisResults = new TFile("AnalysisResults.root");
-  fAnalysisResults = new TFile("AnalysisResults/AnalysisResultsFull.root");
+  //fAnalysisResults = new TFile("AnalysisResults/AnalysisResultsFull.root");
+  fAnalysisResults = new TFile(_rootFileName);
+  pdfFileName = _pdfFileName;
 
   std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
   //std::array<std::string, 1> quadrants = {"Q0"};
@@ -976,7 +1007,7 @@ void muonGlobalAlignmentMftMchResiduals()
   gStyle->SetOptFit(1111);
   
   TCanvas c("c", "c", 1200, 800);
-  c.SaveAs("residuals_AO2D.pdf(");
+  c.SaveAs((pdfFileName + "(").c_str());
 
   TCanvas c2("c2", "c2", 1200, 800);
   c2.SaveAs("residuals_CH.pdf(");
@@ -984,10 +1015,16 @@ void muonGlobalAlignmentMftMchResiduals()
   TCanvas c3("c3", "c3", 1200, 800);
   c3.SaveAs("residuals_DE.pdf(");
 
+  TCanvas c4("c4", "c4", 1200, 800);
+  c4.SaveAs("residuals_tracks.pdf(");
+
+  TCanvas c5("c5", "c5", 1200, 800);
+  c4.SaveAs("residuals_groups.pdf(");
+
   TH1* h1 = GetTH1(fAnalysisResults, "muon-global-alignment/DCA/vertex_z");
   if (h1) {
     h1->Draw();
-    c.SaveAs("residuals_AO2D.pdf");
+    c.SaveAs(pdfFileName.c_str());
   }
 
   c.Clear();
@@ -1007,7 +1044,7 @@ void muonGlobalAlignmentMftMchResiduals()
       proj->SetTitle(std::format("MCH DCA(x), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
       DCAx[k][q] = PlotDCAMCH(proj);
     }
-    c.SaveAs("residuals_AO2D.pdf");
+    c.SaveAs(pdfFileName.c_str());
   }
 
   hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/DCA/MCH/DCA_y_vs_sign_vs_quadrant_vs_vz");
@@ -1024,12 +1061,94 @@ void muonGlobalAlignmentMftMchResiduals()
       proj->SetTitle(std::format("MCH DCA(y), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
       DCAy[k][q] = PlotDCAMCH(proj);
     }
-    c.SaveAs("residuals_AO2D.pdf");
+    c.SaveAs(pdfFileName.c_str());
   }
 
   //c.Clear();
-  //c.SaveAs("residuals_AO2D.pdf)");
+  //c.SaveAs((pdfFileName + ")").c_str());
   //return;
+
+  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/track_dx");
+  if (hn) {
+  TH2* hResidualXp = new TH2F("hResidualXp", "Track #Deltax, positive",
+      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+  TH2* hResidualXn = new TH2F("hResidualXn", "Track #Deltax, negative",
+      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+  std::array<TH2*, 2> hResidualX{hResidualXp, hResidualXn};
+  //hResidualX->Reset();
+  for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
+    hn->GetAxis(0)->SetRange(i + 1, i + 1);
+    for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
+      hn->GetAxis(1)->SetRange(j + 1, j + 1);
+      for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
+        hn->GetAxis(2)->SetRange(k + 1, k + 1);
+
+        hResidualX[k]->SetBinContent(i + 1, j + 1, -100);
+        hResidualX[k]->SetBinError(i + 1, j + 1, 0);
+        auto* proj = hn->Projection(3);
+        if (proj->GetEntries() < 10) continue;
+        proj->SetName(std::format("track_dx_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+        proj->SetTitle(std::format("Track #Deltax, X={} Y={} Q={}", i, j, (k == 0 ? "positive" : "negative")).c_str());
+        auto mean = PlotDXY(proj, c4, "residuals_tracks.pdf");
+        hResidualX[k]->SetBinContent(i + 1, j + 1, mean.first);
+        hResidualX[k]->SetBinError(i + 1, j + 1, mean.second);
+      }
+    }
+  }
+  c.cd();
+  hResidualX[0]->SetMinimum(-1.1);
+  hResidualX[0]->SetMaximum(1.1);
+  hResidualX[0]->Draw("colz");
+  c.SaveAs(pdfFileName.c_str());
+  hResidualX[1]->SetMinimum(-1.1);
+  hResidualX[1]->SetMaximum(1.1);
+  hResidualX[1]->Draw("colz");
+  c.SaveAs(pdfFileName.c_str());
+  }
+
+  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/track_dy");
+  if (hn) {
+  TH2* hResidualYp = new TH2F("hResidualXp", "Track #Deltay, positive",
+      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+  TH2* hResidualYn = new TH2F("hResidualXn", "Track #Deltay, negative",
+      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+  std::array<TH2*, 2> hResidualY{hResidualYp, hResidualYn};
+  for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
+    hn->GetAxis(0)->SetRange(i + 1, i + 1);
+    for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
+      hn->GetAxis(1)->SetRange(j + 1, j + 1);
+      for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
+        hn->GetAxis(2)->SetRange(k + 1, k + 1);
+
+        hResidualY[k]->SetBinContent(i + 1, j + 1, -100);
+        hResidualY[k]->SetBinError(i + 1, j + 1, 0);
+        auto* proj = hn->Projection(3);
+        if (proj->GetEntries() < 10) continue;
+        proj->SetName(std::format("track_dy_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+        proj->SetTitle(std::format("Track #Deltay, X={} Y={} Q={}", i, j, (k == 0 ? "positive" : "negative")).c_str());
+        auto mean = PlotDXY(proj, c4, "residuals_tracks.pdf");
+        hResidualY[k]->SetBinContent(i + 1, j + 1, mean.first);
+        hResidualY[k]->SetBinError(i + 1, j + 1, mean.second);
+      }
+    }
+  }
+  c.cd();
+  hResidualY[0]->SetMinimum(-1.1);
+  hResidualY[0]->SetMaximum(1.1);
+  hResidualY[0]->Draw("colz");
+  c.SaveAs(pdfFileName.c_str());
+  hResidualY[1]->SetMinimum(-1.1);
+  hResidualY[1]->SetMaximum(1.1);
+  hResidualY[1]->Draw("colz");
+  c.SaveAs(pdfFileName.c_str());
+  }
+
+  c4.Clear();
+  c4.SaveAs("residuals_tracks.pdf)");
 
   hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/dx_vs_chamber");
   for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
@@ -1070,27 +1189,81 @@ void muonGlobalAlignmentMftMchResiduals()
 
   PlotZTrend(10, defaultChamberZ, meanDx[0], DCAx[0], "#Delta(x) vs. chamber z (positive);chamber z (cm); #Delta(x) (cm)", -5.0, 5.0, c);
   PlotZTrend(10, defaultChamberZ, meanDx[0], DCAx[0], "#Delta(x) vs. chamber z (positive);chamber z (cm); #Delta(x) (cm)", -1.0, 1.0, c);
+  PlotZTrend(10, defaultChamberZ, meanDx[0], DCAx[0], "#Delta(x) vs. chamber z (positive);chamber z (cm); #Delta(x) (cm)", -0.5, 0.5, c);
   PlotZTrend(10, defaultChamberZ, meanDx[1], DCAx[1], "#Delta(x) vs. chamber z (negative);chamber z (cm); #Delta(x) (cm)", -5.0, 5.0, c);
   PlotZTrend(10, defaultChamberZ, meanDx[1], DCAx[1], "#Delta(x) vs. chamber z (negative);chamber z (cm); #Delta(x) (cm)", -1.0, 1.0, c);
+  PlotZTrend(10, defaultChamberZ, meanDx[1], DCAx[1], "#Delta(x) vs. chamber z (negative);chamber z (cm); #Delta(x) (cm)", -0.5, 0.5, c);
 
   PlotZTrend(10, defaultChamberZ, meanDy[0], DCAy[0], "#Delta(y) vs. chamber z (positive);chamber z (cm); #Delta(y) (cm)", -5.0, 5.0, c);
   PlotZTrend(10, defaultChamberZ, meanDy[0], DCAy[0], "#Delta(y) vs. chamber z (positive);chamber z (cm); #Delta(y) (cm)", -1.0, 1.0, c);
+  PlotZTrend(10, defaultChamberZ, meanDy[0], DCAy[0], "#Delta(y) vs. chamber z (positive);chamber z (cm); #Delta(y) (cm)", -0.5, 0.5, c);
   PlotZTrend(10, defaultChamberZ, meanDy[1], DCAy[1], "#Delta(y) vs. chamber z (negative);chamber z (cm); #Delta(y) (cm)", -5.0, 5.0, c);
   PlotZTrend(10, defaultChamberZ, meanDy[1], DCAy[1], "#Delta(y) vs. chamber z (negative);chamber z (cm); #Delta(y) (cm)", -1.0, 1.0, c);
+  PlotZTrend(10, defaultChamberZ, meanDy[1], DCAy[1], "#Delta(y) vs. chamber z (negative);chamber z (cm); #Delta(y) (cm)", -0.5, 0.5, c);
 
 
+  //-------------------
+  // DE residuals
+  //-------------------
+
+  std::vector<std::pair<std::string, std::vector<int>>> deGroups {
+    {"DE100", {100}},
+    {"DE101", {101}},
+    {"DE102", {102}},
+    {"DE103", {103}},
+    {"DE200", {200}},
+    {"DE201", {201}},
+    {"DE202", {202}},
+    {"DE203", {203}},
+    {"DE300", {300}},
+    {"DE301", {301}},
+    {"DE302", {302}},
+    {"DE303", {303}},
+    {"DE400", {400}},
+    {"DE401", {401}},
+    {"DE402", {402}},
+    {"DE403", {403}},
+    {"CH5L", {505, 506, 507, 508, 509, 510, 511, 512, 513}},
+    {"CH5R", {500, 501, 502, 503, 504, 514, 515, 516, 517}},
+    {"CH6L", {605, 606, 607, 608, 609, 610, 611, 612, 613}},
+    {"CH6R", {600, 601, 602, 603, 604, 614, 615, 616, 617}},
+    {"CH7L", {707, 708, 709, 710, 711, 712, 713, 714, 715, 716, 717, 718, 719}},
+    {"CH7R", {700, 701, 702, 703, 704, 706, 707, 720, 721, 722, 723, 724, 725}},
+    {"CH8L", {807, 808, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818, 819}},
+    {"CH8R", {800, 801, 802, 803, 804, 806, 807, 820, 821, 822, 823, 824, 825}},
+    {"CH9L", {907, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919}},
+    {"CH9R", {900, 901, 902, 903, 904, 906, 907, 920, 921, 922, 923, 924, 925}},
+    {"CH10L", {1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019}},
+    {"CH10R", {1000, 1001, 1002, 1003, 1004, 1006, 1007, 1020, 1021, 1022, 1023, 1024, 1025}}
+  };
+
+  std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
+
+  std::ofstream corrections_x("corrections-x.txt");
+
+  // axis assignments:
+  // 0: DE index
+  // 1: quadrant
+  // 2: charge sign
+  // 3: residual
+
+  // -----------------
+  // X direction
 
   hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/dx_vs_de");
   TH1* histDxVsDE[2] = {nullptr, nullptr};
   for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
-    hn->GetAxis(2)->SetRange(k + 1, k + 1);
-    hn->GetAxis(0)->SetRange(1, hn->GetAxis(0)->GetNbins());
+    //hn->GetAxis(2)->SetRange(k + 1, k + 1);
+    //hn->GetAxis(0)->SetRange(1, hn->GetAxis(0)->GetNbins());
     histDxVsDE[k] = hn->Projection(0);
     histDxVsDE[k]->Reset();
     histDxVsDE[k]->SetName(std::format("dx_vs_de_{}", (k == 0 ? "positive" : "negative")).c_str());
     histDxVsDE[k]->SetTitle("#Deltax vs. DE");
-    for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
-      hn->GetAxis(0)->SetRange(i + 1, i + 1);
+  }
+  for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
+    hn->GetAxis(0)->SetRange(i + 1, i + 1);
+    for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
+      hn->GetAxis(2)->SetRange(k + 1, k + 1);
 
       auto* proj = hn->Projection(3);
       proj->SetName(std::format("dx_vs_de_{}_{}", i+1, (k == 0 ? "positive" : "negative")).c_str());
@@ -1108,11 +1281,65 @@ void muonGlobalAlignmentMftMchResiduals()
   histDxVsDE[0]->Draw("E");
   histDxVsDE[1]->SetLineColor(kRed);
   histDxVsDE[1]->Draw("E same");
-  c.SaveAs("residuals_AO2D.pdf");
-  histDxVsDE[0]->GetXaxis()->SetRangeUser(0, 16);
-  histDxVsDE[0]->SetMinimum(-0.1);
-  histDxVsDE[0]->SetMaximum(0.1);
-  c.SaveAs("residuals_AO2D.pdf");
+  c.SaveAs(pdfFileName.c_str());
+
+  // set DE names in X axis
+  for (int xbin = 1; xbin <= histDxVsDE[0]->GetXaxis()->GetNbins(); xbin++) {
+    int deId = getDEFromIndex(xbin - 1);
+    histDxVsDE[0]->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
+  }
+
+  std::string histTitle = histDxVsDE[0]->GetTitle();
+  for (int chIndex = 0; chIndex < 10; chIndex++) {
+    int deMin = getChamberOffset(chIndex);
+    int deMax = deMin + getNumDEinChamber(chIndex);
+    histDxVsDE[0]->GetXaxis()->SetRangeUser(deMin, deMax);
+    histDxVsDE[0]->SetTitle((histTitle + "(CH" + std::to_string(chIndex+1) + ")").c_str());
+    histDxVsDE[0]->SetMinimum(-1.0);
+    histDxVsDE[0]->SetMaximum(1.0);
+    c.SaveAs(pdfFileName.c_str());
+
+    histDxVsDE[0]->SetMinimum(-0.5);
+    histDxVsDE[0]->SetMaximum(0.5);
+    c.SaveAs(pdfFileName.c_str());
+
+    if (chIndex < 4) {
+      histDxVsDE[0]->SetMinimum(-0.1);
+      histDxVsDE[0]->SetMaximum(0.1);
+      c.SaveAs(pdfFileName.c_str());
+    }
+  }
+
+  //   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
+  hn->GetAxis(1)->SetRange(1, hn->GetAxis(1)->GetNbins());
+  for (const auto& group : deGroups) {
+    hDEResiduals[0].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
+    // loop over charge sign
+    for (int charge = 0; charge < 2; charge++) {
+      hn->GetAxis(2)->SetRange(charge + 1, charge + 1);
+      // loop over DE ids
+      for (auto deId : group.second) {
+        auto deIndex = getDEindex(deId);
+        hn->GetAxis(0)->SetRange(deIndex + 1, deIndex + 1);
+        TH1* proj = hn->Projection(3);
+        if (hDEResiduals[0].back()[charge]) {
+          hDEResiduals[0].back()[charge]->Add(proj);
+          delete proj;
+        } else {
+          proj->SetTitle(std::format("{} - #Deltax, {}", group.first, (charge == 0 ? "positive" : "negative")).c_str());
+          hDEResiduals[0].back()[charge] = proj;
+        }
+      }
+      auto mean = PlotDXY(hDEResiduals[0].back()[charge], c5, "residuals_groups.pdf");
+      corrections_x << std::format("{} ({}): dx = {:0.3f} +/- {:0.3f}",
+          group.first, (charge == 0 ? "positive" : "negative"), mean.first, mean.second) << std::endl;
+    }
+  }
+
+  // -----------------
+  // Y direction
+
+  std::ofstream corrections_y("corrections-y.txt");
 
   hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/dy_vs_de");
   TH1* histDyVsDE[2] = {nullptr, nullptr};
@@ -1142,103 +1369,71 @@ void muonGlobalAlignmentMftMchResiduals()
   histDyVsDE[0]->Draw("E");
   histDyVsDE[1]->SetLineColor(kRed);
   histDyVsDE[1]->Draw("E same");
-  c.SaveAs("residuals_AO2D.pdf");
-  histDyVsDE[0]->GetXaxis()->SetRangeUser(0, 16);
-  histDyVsDE[0]->SetMinimum(-0.1);
-  histDyVsDE[0]->SetMaximum(0.1);
-  c.SaveAs("residuals_AO2D.pdf");
+  c.SaveAs(pdfFileName.c_str());
 
+  // set DE names in X axis
+  for (int xbin = 1; xbin <= histDyVsDE[0]->GetXaxis()->GetNbins(); xbin++) {
+    int deId = getDEFromIndex(xbin - 1);
+    histDyVsDE[0]->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
+  }
 
+  histTitle = histDyVsDE[0]->GetTitle();
+  for (int chIndex = 0; chIndex < 10; chIndex++) {
+    int deMin = getChamberOffset(chIndex);
+    int deMax = deMin + getNumDEinChamber(chIndex);
+    histDyVsDE[0]->GetXaxis()->SetRangeUser(deMin, deMax);
+    histDyVsDE[0]->SetTitle((histTitle + "(CH" + std::to_string(chIndex+1) + ")").c_str());
+    histDyVsDE[0]->SetMinimum(-1.0);
+    histDyVsDE[0]->SetMaximum(1.0);
+    c.SaveAs(pdfFileName.c_str());
 
+    histDyVsDE[0]->SetMinimum(-0.5);
+    histDyVsDE[0]->SetMaximum(0.5);
+    c.SaveAs(pdfFileName.c_str());
 
-
-
-  //PlotZTrendPNLR(10, defaultChamberZ, meanDx_LR_TB_PN[0], DCAx[0], "#Delta(x) vs. chamber z - MFT top;chamber z (cm); #Delta(x) (cm)", -5.0, 5.0, c);
-  //PlotZTrendPNLR(10, defaultChamberZ, meanDx_LR_TB_PN[1], DCAx[1], "#Delta(x) vs. chamber z - MFT bottom;chamber z (cm); #Delta(x) (cm)", -5.0, 5.0, c);
-  //PlotZTrendPNLR(10, defaultChamberZ, meanDy_LR_TB_PN[0], DCAy[0], "#Delta(y) vs. chamber z - MFT top;chamber z (cm); #Delta(y) (cm)", -5.0, 5.0, c, true);
-  //PlotZTrendPNLR(10, defaultChamberZ, meanDy_LR_TB_PN[1], DCAy[1], "#Delta(y) vs. chamber z - MFT bottom;chamber z (cm); #Delta(y) (cm)", -5.0, 5.0, c);
-
-  /*
-  // MCH residuals
-
-  topBottom = {"MCH_top", "MCH_bottom"};
-  for (int chamber = 0; chamber < 10; chamber++) {
-    for (int i = 0; i < 2; i++) {
-      for (int j = 0; j < 2; j++) {
-        bool print = false;
-        //if (i == 9 && j == 0) print = true;
-        auto result = PlotDXYvsDE(topBottom[i] + "/" + posNeg[j] + "/CH" + std::to_string(chamber + 1) + "/dx_vs_de", chamber + 1, c, print);
-        mchMeanDx_LR_TB_PN[i][j][0][chamber] = result[0];
-        mchMeanDx_LR_TB_PN[i][j][1][chamber] = result[1];
-        //histDxVsY->SetTitle(std::format("{} {}-{} CH{}", histDxVsY->GetTitle(), topBottom[i], posNeg[j], (k+1)).c_str());
-        //histDxVsY->SetTitle("TOTO");
-        dxVsDEhistograms[chamber][i][j] = histDxVsY;
-      }
-    }
-    for (int i = 0; i < 2; i++) {
-      for (int j = 0; j < 2; j++) {
-        bool print = false;
-        //if (i == 9 && j == 0) print = true;
-        auto result = PlotDXYvsDE(topBottom[i] + "/" + posNeg[j] + "/CH" + std::to_string(chamber + 1) + "/dy_vs_de", chamber + 1, c, print);
-        mchMeanDy_LR_TB_PN[i][j][0][chamber] = result[0];
-        mchMeanDy_LR_TB_PN[i][j][1][chamber] = result[1];
-        //histDxVsY->SetTitle(std::format("{} {}-{} CH{}", histDxVsY->GetTitle(), topBottom[i], posNeg[j], (k+1)).c_str());
-        dyVsDEhistograms[chamber][i][j] = histDxVsY;
-      }
+    if (chIndex < 4) {
+      histDyVsDE[0]->SetMinimum(-0.1);
+      histDyVsDE[0]->SetMaximum(0.1);
+      c.SaveAs(pdfFileName.c_str());
     }
   }
 
-  PlotZTrendPNLR(10, defaultChamberZ, mchMeanDx_LR_TB_PN[0], DCAx[0], "#Delta(x) vs. chamber z - MCH top;chamber z (cm); #Delta(x) (cm)", -5.0, 5.0, c);
-  PlotZTrendPNLR(10, defaultChamberZ, mchMeanDx_LR_TB_PN[1], DCAx[1], "#Delta(x) vs. chamber z - MCH bottom;chamber z (cm); #Delta(x) (cm)", -5.0, 5.0, c);
-  PlotZTrendPNLR(10, defaultChamberZ, mchMeanDy_LR_TB_PN[0], DCAy[0], "#Delta(y) vs. chamber z - MCH top;chamber z (cm); #Delta(y) (cm)", -5.0, 5.0, c);
-  PlotZTrendPNLR(10, defaultChamberZ, mchMeanDy_LR_TB_PN[1], DCAy[1], "#Delta(y) vs. chamber z - MCH bottom;chamber z (cm); #Delta(y) (cm)", -5.0, 5.0, c);
-  */
+  //   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
+  hn->GetAxis(1)->SetRange(1, hn->GetAxis(1)->GetNbins());
+  for (const auto& group : deGroups) {
+    hDEResiduals[0].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
+    // loop over charge sign
+    for (int charge = 0; charge < 2; charge++) {
+      hn->GetAxis(2)->SetRange(charge + 1, charge + 1);
+      // loop over DE ids
+      for (auto deId : group.second) {
+        auto deIndex = getDEindex(deId);
+        hn->GetAxis(0)->SetRange(deIndex + 1, deIndex + 1);
+        TH1* proj = hn->Projection(3);
+        if (hDEResiduals[0].back()[charge]) {
+          hDEResiduals[1].back()[charge]->Add(proj);
+          delete proj;
+        } else {
+          proj->SetTitle(std::format("{} - #Deltay, {}", group.first, (charge == 0 ? "positive" : "negative")).c_str());
+          hDEResiduals[1].back()[charge] = proj;
+        }
+      }
+      auto mean = PlotDXY(hDEResiduals[0].back()[charge], c5, "residuals_groups.pdf");
+      corrections_y << std::format("{} ({}): dy = {:0.3f} +/- {:0.3f}",
+          group.first, (charge == 0 ? "positive" : "negative"), mean.first, mean.second) << std::endl;
+    }
+  }
+
 
   c.Clear();
-  c.SaveAs("residuals_AO2D.pdf)");
+  c.SaveAs((pdfFileName + ")").c_str());
 
   c3.Clear();
   c2.SaveAs("residuals_CH.pdf)");
 
   c3.Clear();
   c3.SaveAs("residuals_DE.pdf)");
-/*
-  int top = 0;
-  int bottom = 1;
-  int left = 0;
-  int right = 1;
-  int pos = 0;
-  int neg = 1;
-  std::cout << "\nAverage displacement at CH1:" << std::endl;
-  std::cout << "* MFT top:" << std::endl;
-  std::cout << std::format("    MCH left: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[top][pos][left][0].first + meanDx_LR_TB_PN[top][neg][left][0].first) / 2.0,
-      (meanDy_LR_TB_PN[top][pos][left][0].first + meanDy_LR_TB_PN[top][neg][left][0].first) / 2.0) << std::endl;
-  std::cout << std::format("    MCH right: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[top][pos][right][0].first + meanDx_LR_TB_PN[top][neg][right][0].first) / 2.0,
-      (meanDy_LR_TB_PN[top][pos][right][0].first + meanDy_LR_TB_PN[top][neg][right][0].first) / 2.0) << std::endl;
-  std::cout << "* MFT bottom:" << std::endl;
-  std::cout << std::format("    MCH left: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[bottom][pos][left][0].first + meanDx_LR_TB_PN[bottom][neg][left][0].first) / 2.0,
-      (meanDy_LR_TB_PN[bottom][pos][left][0].first + meanDy_LR_TB_PN[bottom][neg][left][0].first) / 2.0) << std::endl;
-  std::cout << std::format("    MCH right: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[bottom][pos][right][0].first + meanDx_LR_TB_PN[bottom][neg][right][0].first) / 2.0,
-      (meanDy_LR_TB_PN[bottom][pos][right][0].first + meanDy_LR_TB_PN[bottom][neg][right][0].first) / 2.0) << std::endl;
 
-  std::cout << "\nAverage displacement at CH10:" << std::endl;
-  std::cout << "* MFT top:" << std::endl;
-  std::cout << std::format("    MCH left: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[top][pos][left][9].first + meanDx_LR_TB_PN[top][neg][left][9].first) / 2.0,
-      (meanDy_LR_TB_PN[top][pos][left][9].first + meanDy_LR_TB_PN[top][neg][left][9].first) / 2.0) << std::endl;
-  std::cout << std::format("    MCH right: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[top][pos][right][9].first + meanDx_LR_TB_PN[top][neg][right][9].first) / 2.0,
-      (meanDy_LR_TB_PN[top][pos][right][9].first + meanDy_LR_TB_PN[top][neg][right][9].first) / 2.0) << std::endl;
-  std::cout << "* MFT bottom:" << std::endl;
-  std::cout << std::format("    MCH left: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[bottom][pos][left][9].first + meanDx_LR_TB_PN[bottom][neg][left][9].first) / 2.0,
-      (meanDy_LR_TB_PN[bottom][pos][left][9].first + meanDy_LR_TB_PN[bottom][neg][left][9].first) / 2.0) << std::endl;
-  std::cout << std::format("    MCH right: Dx={:0.4f} Dy={:0.4f}",
-      (meanDx_LR_TB_PN[bottom][pos][right][9].first + meanDx_LR_TB_PN[bottom][neg][right][9].first) / 2.0,
-      (meanDy_LR_TB_PN[bottom][pos][right][9].first + meanDy_LR_TB_PN[bottom][neg][right][9].first) / 2.0) << std::endl;
-*/
+  c5.Clear();
+  c5.SaveAs("residuals_groups.pdf)");
 }
