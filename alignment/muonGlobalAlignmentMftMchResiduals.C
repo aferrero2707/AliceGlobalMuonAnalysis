@@ -972,6 +972,12 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   fAnalysisResults = new TFile(_rootFileName);
   pdfFileName = _pdfFileName;
 
+  int wagonId = -1;
+  //int wagonId = 45637;
+  //int wagonId = 47795;
+
+  std::string taskPath = (wagonId > 0) ? std::format("muon-global-alignment_id{}", wagonId) : "muon-global-alignment";
+
   std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
   //std::array<std::string, 1> quadrants = {"Q0"};
 
@@ -1021,7 +1027,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   TCanvas c5("c5", "c5", 1200, 800);
   c4.SaveAs("residuals_groups.pdf(");
 
-  TH1* h1 = GetTH1(fAnalysisResults, "muon-global-alignment/DCA/vertex_z");
+  TH1* h1 = GetTH1(fAnalysisResults, (taskPath + "/DCA/vertex_z").c_str());
   if (h1) {
     h1->Draw();
     c.SaveAs(pdfFileName.c_str());
@@ -1030,7 +1036,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   c.Clear();
   c.Divide(2, 2);
 
-  auto* hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/DCA/MCH/DCA_x_vs_sign_vs_quadrant_vs_vz");
+  auto* hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_x_vs_sign_vs_quadrant_vs_vz").c_str());
   for (int k = 0; k < 2; k++) {
     hn->GetAxis(2)->SetRange(k + 1, k + 1);
     for (int q = 0; q < quadrants.size(); q++) {
@@ -1047,7 +1053,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
     c.SaveAs(pdfFileName.c_str());
   }
 
-  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/DCA/MCH/DCA_y_vs_sign_vs_quadrant_vs_vz");
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_y_vs_sign_vs_quadrant_vs_vz").c_str());
   for (int k = 0; k < 2; k++) {
     hn->GetAxis(2)->SetRange(k + 1, k + 1);
     for (int q = 0; q < quadrants.size(); q++) {
@@ -1068,7 +1074,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   //c.SaveAs((pdfFileName + ")").c_str());
   //return;
 
-  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/track_dx");
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/track_dx").c_str());
   if (hn) {
   TH2* hResidualXp = new TH2F("hResidualXp", "Track #Deltax, positive",
       hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
@@ -1108,7 +1114,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   c.SaveAs(pdfFileName.c_str());
   }
 
-  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/track_dy");
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/track_dy").c_str());
   if (hn) {
   TH2* hResidualYp = new TH2F("hResidualXp", "Track #Deltay, positive",
       hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
@@ -1150,7 +1156,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   c4.Clear();
   c4.SaveAs("residuals_tracks.pdf)");
 
-  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/dx_vs_chamber");
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_chamber").c_str());
   for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
     hn->GetAxis(0)->SetRange(i + 1, i + 1);
     for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
@@ -1166,7 +1172,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
     }
   }
 
-  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/dy_vs_chamber");
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_chamber").c_str());
   for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
     hn->GetAxis(0)->SetRange(i + 1, i + 1);
     for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
@@ -1250,7 +1256,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   // -----------------
   // X direction
 
-  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/dx_vs_de");
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_de").c_str());
   TH1* histDxVsDE[2] = {nullptr, nullptr};
   for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
     //hn->GetAxis(2)->SetRange(k + 1, k + 1);
@@ -1295,6 +1301,10 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
     int deMax = deMin + getNumDEinChamber(chIndex);
     histDxVsDE[0]->GetXaxis()->SetRangeUser(deMin, deMax);
     histDxVsDE[0]->SetTitle((histTitle + "(CH" + std::to_string(chIndex+1) + ")").c_str());
+    histDxVsDE[0]->SetMinimum(-5.0);
+    histDxVsDE[0]->SetMaximum(5.0);
+    c.SaveAs(pdfFileName.c_str());
+
     histDxVsDE[0]->SetMinimum(-1.0);
     histDxVsDE[0]->SetMaximum(1.0);
     c.SaveAs(pdfFileName.c_str());
@@ -1341,7 +1351,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
 
   std::ofstream corrections_y("corrections-y.txt");
 
-  hn = GetTHnSparse(fAnalysisResults, "muon-global-alignment/residuals/dy_vs_de");
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de").c_str());
   TH1* histDyVsDE[2] = {nullptr, nullptr};
   for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
     hn->GetAxis(2)->SetRange(k + 1, k + 1);
