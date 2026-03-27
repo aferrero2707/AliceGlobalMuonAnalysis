@@ -11,7 +11,9 @@ constexpr int nPoints = 4;
 
 TH1* GetTH1(TFile* f, TString histname)
 {
-  return (TH1*)f->Get(histname);
+  TH1* result = (TH1*)f->Get(histname);
+  std::cout << std::format("{} -> {}", histname.Data(), (void*)result) << std::endl;
+  return result;
 
   //TString histname = TString::Format("ST%d/DE%d/Occupancy_B_XY_%d", station, de, de);
   TKey *key = f->GetKey(histname);
@@ -23,7 +25,9 @@ TH1* GetTH1(TFile* f, TString histname)
 
 TH2* GetTH2(TFile* f, TString histname)
 {
-  return (TH2*)f->Get(histname);
+  TH2* result = (TH2*)f->Get(histname);
+  std::cout << std::format("{} -> {}", histname.Data(), (void*)result) << std::endl;
+  return result;
 
   //TString histname = TString::Format("ST%d/DE%d/Occupancy_B_XY_%d", station, de, de);
   TKey *key = f->GetKey(histname);
@@ -35,7 +39,9 @@ TH2* GetTH2(TFile* f, TString histname)
 
 TH3* GetTH3(TFile* f, TString histname)
 {
-  return (TH3*)f->Get(histname);
+  TH3* result = (TH3*)f->Get(histname);
+  std::cout << std::format("{} -> {}", histname.Data(), (void*)result) << std::endl;
+  return result;
 
   //TString histname = TString::Format("ST%d/DE%d/Occupancy_B_XY_%d", station, de, de);
   TKey *key = f->GetKey(histname);
@@ -145,6 +151,19 @@ int getDEFromIndex(int index)
   }
 
   return deId;
+}
+
+
+Double_t VariableWidthGaussian(double* x, double *par)
+{
+  // distance from mean
+  Double_t dx = x[0] - par[1];
+  // quadratically variable sigma
+  Double_t sigma = par[2] * (par[3] + par[4] * dx + par[5] * dx * dx + par[6] * dx * dx * dx);
+
+  // gaussian + quadratic background
+  Double_t result = par[0] * TMath::Exp(-0.5 * (dx * dx) / (sigma * sigma)) + par[7] + par[8] * x[0] + par[9] * x[0] * x[0];
+  return result;
 }
 
 
@@ -518,14 +537,14 @@ TH2* PlotDCAMFT(std::string histName)
   return histogram;
 }
 
-std::pair<double, double> PlotDCAMCH(TH1* histogram)
+std::pair<double, double> PlotDCAMCH(TH1* histogram, int rebin = 1)
 {
   //std::string fullHistName = std::string("qa-muon/alignment/") + histName;
   //TH1* histogram = GetTH1(fAnalysisResults, fullHistName);
   //std::cout << fullHistName << " -> " << histogram << std::endl;
   if (!histogram)
-    return {};
-  histogram->Rebin(4);
+    return {nan(""), nan("")};
+  histogram->Rebin(rebin);
 
   histogram->Draw("E");
 
@@ -533,61 +552,296 @@ std::pair<double, double> PlotDCAMCH(TH1* histogram)
   int binPeak = histogram->GetMaximumBin();
   double xPeak = histogram->GetXaxis()->GetBinCenter(binPeak);
 
-  TF1 fcb("fcb", DoubleSidedCB, -6, 6, 7);
-  fcb.SetNpx(1000);
-  fcb.SetLineColor(kBlack);
-  //fcb.SetParameter(0, valuePeak);
-  double par[7];
-  par[0]=35000;
-  par[1]=xPeak;
-  par[2]=0.5;
-  par[3]=1;
-  par[4]=1;
-  par[5]=1;
-  par[6]=1;
-  fcb.SetParameters(&par[0]);
-/*
-  fcb.FixParameter(1, xPeak);
-  fcb.SetParLimits(2, 0.5, 10);
-  histogram->Fit("fcb", "BRN");
-  fcb.ReleaseParameter(1);
-  histogram->Fit("fcb", "BRN");
-  histogram->Fit("fcb", "BR");
-*/
-/**/
-  TF1 fgaus2("fgaus2", "gaus(0)");
-  fgaus2.SetNpx(1000);
-  fgaus2.SetLineColor(kBlack);
-  fgaus2.SetParameter(0, valuePeak / 10);
-  //fgaus2.SetParLimits(0, 0, valuePeak * 10);
-  fgaus2.SetParameter(1, xPeak);
-  fgaus2.FixParameter(1, xPeak);
-  fgaus2.SetParameter(2, 1);
-  fgaus2.SetParLimits(2, 0, 10);
-  histogram->Fit("fgaus2", "BQN");
-  fgaus2.ReleaseParameter(1);
-  fgaus2.SetParLimits(1, -10, 10);
-  histogram->Fit("fgaus2", "LBQN");
+  if (valuePeak < 10)
+    return {nan(""), nan("")};
 
-  TF1 fgaus("fgaus", "gaus(0)+gaus(3)", fgaus2.GetParameter(1) - 1.0 * fgaus2.GetParameter(2), fgaus2.GetParameter(1) + 1.0 * fgaus2.GetParameter(2));
-  fgaus.SetNpx(1000);
-  fgaus.SetLineColor(kBlack);
-  //fgaus.SetParLimits(0, 0, 100000000000.0);
-  fgaus.SetParameter(0, fgaus2.GetParameter(0));
-  fgaus.SetParameter(1, fgaus2.GetParameter(1));
-  fgaus.SetParameter(2, fgaus2.GetParameter(2));
-  fgaus.SetParLimits(2, 0, 100);
-  fgaus.SetParameter(3, fgaus2.GetParameter(0)/10);
-  fgaus.FixParameter(3, 0);
-  fgaus.SetParameter(4, fgaus2.GetParameter(1));
-  fgaus.SetParameter(5, fgaus2.GetParameter(2)*5);
-  fgaus.SetParLimits(5, fgaus2.GetParameter(2)*2, 100);
-  histogram->Fit("fgaus", "RQB");
-/**/
-  histogram->Draw("E");
+  bool cbFit = false;
 
-  //return {fcb.GetParameter(1), fcb.GetParError(1)};
-  return {fgaus.GetParameter(1), fgaus.GetParError(1)};
+  if (cbFit) {
+    TF1 fcb("fcb", DoubleSidedCB, -6, 6, 7);
+    fcb.SetNpx(1000);
+    fcb.SetLineColor(kBlack);
+    //fcb.SetParameter(0, valuePeak);
+    double par[7];
+    par[0]=35000;
+    par[1]=xPeak;
+    par[2]=0.5;
+    par[3]=1;
+    par[4]=1;
+    par[5]=1;
+    par[6]=1;
+    fcb.SetParameters(&par[0]);
+    fcb.FixParameter(1, xPeak);
+    fcb.SetParLimits(2, 0.5, 10);
+    histogram->Fit("fcb", "BRN");
+    fcb.ReleaseParameter(1);
+    histogram->Fit("fcb", "BRN");
+    histogram->Fit("fcb", "BR");
+
+    return {fcb.GetParameter(1), fcb.GetParError(1)};
+  } else {
+    TF1 fgaus2("fgaus2", "gaus(0)+pol2(3)");
+    fgaus2.SetNpx(1000);
+    fgaus2.SetLineColor(kRed);
+    fgaus2.SetParameter(0, valuePeak / 10);
+    //fgaus2.SetParLimits(0, 0, valuePeak * 10);
+    fgaus2.SetParameter(1, xPeak);
+    fgaus2.FixParameter(1, xPeak);
+    fgaus2.SetParameter(2, 1);
+    fgaus2.SetParLimits(2, 0, 10);
+    histogram->Fit("fgaus2", "BQN");
+    fgaus2.ReleaseParameter(1);
+    fgaus2.SetParLimits(1, -10, 10);
+    histogram->Fit("fgaus2", "BQN");
+
+    TF1 fgaus("fgaus", "gaus(0)", fgaus2.GetParameter(1) - 1.5 * fgaus2.GetParameter(2), fgaus2.GetParameter(1) + 1.5 * fgaus2.GetParameter(2));
+    fgaus.SetNpx(1000);
+    fgaus.SetLineColor(kBlack);
+    //fgaus.SetParLimits(0, 0, 100000000000.0);
+    fgaus.SetParameter(0, fgaus2.GetParameter(0));
+    fgaus.SetParameter(1, fgaus2.GetParameter(1));
+    fgaus.SetParameter(2, fgaus2.GetParameter(2));
+    fgaus.SetParLimits(2, 0, 100);
+    //fgaus.SetParameter(3, fgaus2.GetParameter(0)/10);
+    //fgaus.FixParameter(3, 0);
+    //fgaus.SetParameter(4, fgaus2.GetParameter(1));
+    //fgaus.SetParameter(5, fgaus2.GetParameter(2)*5);
+    //fgaus.SetParLimits(5, fgaus2.GetParameter(2)*2, 100);
+    histogram->Fit("fgaus", "RQB+");
+
+    return {fgaus.GetParameter(1), fgaus.GetParError(1)};
+  }
+}
+
+void PlotDCAMCHvsMomentum(THnSparse* hnx, THnSparse* hny, TCanvas& c)
+{
+  // axes assignments:
+  // 0: momentum
+  // 1: quadrant
+  // 2: sign
+  // 3: DCA
+  int pAxisId = 0;
+  int quadrantAxisId = 1;
+  int signAxisId = 2;
+  int dcaAxisId = 3;
+
+  int momRebin = 1;
+
+  if (!hnx || !hny) return;
+
+  c.Clear();
+  c.cd();
+
+  std::array<THnSparse*, 2> hn{ hnx, hny };
+
+  std::array<std::string, 2> coordinates{ "x", "y" };
+
+  std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
+
+  int colors[4] = {kBlue, kRed, kOrange, kCyan};
+  //int markers[4] = {kStar, kCircle, kMultiply, kFullDotLarge};
+  int markers[2] = {kStar, kCircle};
+  int lineStyles[2] = {kSolid, kDashed};
+
+
+  std::vector<double> momenta;
+  // dca[coordinate][sign][quadrant][momentum]
+  std::array<std::array<std::array<std::vector<double>, 4>, 2>, 2> momentum;
+  std::array<std::array<std::array<std::vector<double>, 4>, 2>, 2> momentumErr;
+  std::array<std::array<std::array<std::vector<double>, 4>, 2>, 2> dca;
+  std::array<std::array<std::array<std::vector<double>, 4>, 2>, 2> dcaErr;
+
+  // loop on coordinates
+  for (int ci = 0; ci < 2; ci++) {
+    auto coordinate = coordinates[ci];
+
+    // (sign == 0 ? "positive" : "negative")
+    TMultiGraph* mg = new TMultiGraph();
+    mg->SetTitle(Form("DCA(%s) vs. momentum;p (GeV/c); DCA (cm)", coordinate.c_str()));
+    TGraphErrors* gr = new TGraphErrors();
+    gr->AddPoint(0, 1000);
+    gr->AddPoint(hn[ci]->GetAxis(pAxisId)->GetXmax(), 1000);
+    mg->Add(gr,"lp");
+
+    TLegend* legend = new TLegend(0.6, 0.8, 0.9, 0.9);
+    legend->SetNColumns(4);
+
+    // loop on charge sign
+    for (int sign = 0; sign < 2; sign++) {
+      hn[ci]->GetAxis(signAxisId)->SetRange(sign + 1, sign + 1);
+      // loop on quadrant
+      for (int quadrant = 0; quadrant < 4; quadrant++) {
+        hn[ci]->GetAxis(quadrantAxisId)->SetRange(quadrant + 1, quadrant + 1);
+        // loop on momentum
+        for (int mom = 0; mom < hn[ci]->GetAxis(pAxisId)->GetNbins(); mom += momRebin) {
+          hn[ci]->GetAxis(pAxisId)->SetRange(mom + 1, mom + momRebin);
+          //hn[ci]->GetAxis(pAxisId)->SetRange(5, -1);
+
+          auto* proj = hn[ci]->Projection(dcaAxisId);
+          proj->SetTitle(std::format("MCH DCA({}), Q{} {}", coordinate, quadrant, (sign == 0 ? "+" : "-")).c_str());
+          auto result = PlotDCAMCH(proj);
+          delete proj;
+          if (std::isnan(result.first) || std::isnan(result.second)) {
+            continue;
+          }
+
+          double avgMom = (hn[ci]->GetAxis(pAxisId)->GetBinLowEdge(mom + 1) +
+                           hn[ci]->GetAxis(pAxisId)->GetBinUpEdge(mom + momRebin)) / 2.f;
+          momentum[ci][sign][quadrant].push_back(avgMom);
+          momentumErr[ci][sign][quadrant].push_back(0);
+          dca[ci][sign][quadrant].push_back(result.first);
+          dcaErr[ci][sign][quadrant].push_back(result.second);
+        }
+      }
+
+      for (int quadrant = 0; quadrant < 4; quadrant++) {
+        if (dca[ci][sign][quadrant].empty()) {
+          continue;
+        }
+        std::cout << std::format("Q{}  dca[0]={}", quadrant, dca[ci][sign][quadrant][0]) << std::endl;
+        TGraphErrors* gr = new TGraphErrors(momentum[ci][sign][quadrant].size(),
+                                            momentum[ci][sign][quadrant].data(),
+                                            dca[ci][sign][quadrant].data(),
+                                            momentumErr[ci][sign][quadrant].data(),
+                                            dcaErr[ci][sign][quadrant].data());
+        gr->SetLineColor(colors[quadrant]);
+        gr->SetMarkerColor(colors[quadrant]);
+        gr->SetMarkerStyle(markers[sign]);
+        gr->SetMarkerSize(2);
+        gr->SetLineStyle(lineStyles[sign]);
+        mg->Add(gr,"pl");
+        auto* entry = legend->AddEntry(gr, (quadrants[quadrant] + (sign == 0 ? " (+)" : " (-)")).c_str(), "P");
+        entry->SetTextColor(colors[quadrant]);
+      }
+    }
+    mg->Draw("a");
+    mg->SetMinimum(-1);
+    mg->SetMaximum(1);
+    legend->Draw();
+
+    c.SaveAs(pdfFileName.c_str());
+  }
+}
+
+void PlotChamberResidualvsMomentum(THnSparse* hnx, THnSparse* hny, TCanvas& c)
+{
+  if (hnx->GetNdimensions() < 5) {
+    return;
+  }
+
+  int residualAxisId = 0;
+  int deAxisId = 1;
+  int quadrantAxisId = 2;
+  int signAxisId = 3;
+  int pAxisId = 4;
+
+  int momRebin = 2;
+
+  if (!hnx || !hny) return;
+
+  c.Clear();
+  c.cd();
+
+  std::array<THnSparse*, 2> hn{ hnx, hny };
+  std::array<std::string, 2> coordinates{ "x", "y" };
+  std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
+
+  int colors[4] = {kBlue, kRed, kOrange, kCyan};
+  //int markers[4] = {kStar, kCircle, kMultiply, kFullDotLarge};
+  int markers[2] = {kStar, kCircle};
+  int lineStyles[2] = {kSolid, kDashed};
+
+
+  // loop on coordinates
+  for (int ci = 0; ci < 2; ci++) {
+    auto coordinate = coordinates[ci];
+    // loop on chamber ID
+    for (int chamber = 0; chamber < 10; chamber++) {
+      if (chamber > 0 && chamber < 9) continue;
+      int deIdMin = getChamberOffset(chamber);
+      int deIdMax = deIdMin + getNumDEinChamber(chamber) - 1;
+      hn[ci]->GetAxis(deAxisId)->SetRange(deIdMin + 1, deIdMax + 1);
+
+      // dca[coordinate][sign][quadrant][momentum]
+      std::array<std::array<std::vector<double>, 4>, 2> momentum;
+      std::array<std::array<std::vector<double>, 4>, 2> momentumErr;
+      std::array<std::array<std::vector<double>, 4>, 2> dca;
+      std::array<std::array<std::vector<double>, 4>, 2> dcaErr;
+
+      TMultiGraph* mg = new TMultiGraph();
+      mg->SetTitle(Form("CH%d #Delta(%s) vs. momentum;p (GeV/c); #Delta(%s) (cm)", chamber+1, coordinate.c_str(), coordinate.c_str()));
+      TGraphErrors* gr = new TGraphErrors();
+      gr->AddPoint(0, 1000);
+      gr->AddPoint(hn[ci]->GetAxis(pAxisId)->GetXmax(), 1000);
+      mg->Add(gr,"lp");
+
+      TLegend* legend = new TLegend(0.6, 0.8, 0.9, 0.9);
+      legend->SetNColumns(4);
+
+      // loop on charge sign
+      for (int sign = 0; sign < 2; sign++) {
+        hn[ci]->GetAxis(signAxisId)->SetRange(sign + 1, sign + 1);
+        // loop on quadrant
+        for (int quadrant = 0; quadrant < 4; quadrant++) {
+          hn[ci]->GetAxis(quadrantAxisId)->SetRange(quadrant + 1, quadrant + 1);
+          // loop on momentum
+          for (int mom = 0; mom < hn[ci]->GetAxis(pAxisId)->GetNbins(); mom += momRebin) {
+            hn[ci]->GetAxis(pAxisId)->SetRange(mom + 1, mom + momRebin);
+            //hn[ci]->GetAxis(pAxisId)->SetRange(5, -1);
+
+            auto* proj = hn[ci]->Projection(residualAxisId);
+            proj->SetTitle(std::format("MCH DCA({}), Q{} {}", coordinate, quadrant, (sign == 0 ? "+" : "-")).c_str());
+            auto result = PlotDCAMCH(proj);
+            if (std::isnan(result.first) || std::isnan(result.second)) {
+              continue;
+            }
+            if (false && ci == 0 && chamber == 9 && sign == 0 && quadrant == 0) {
+              proj->Draw();
+              c.SaveAs(pdfFileName.c_str());
+            }
+
+            double avgMom = (hn[ci]->GetAxis(pAxisId)->GetBinLowEdge(mom + 1) +
+                hn[ci]->GetAxis(pAxisId)->GetBinUpEdge(mom + momRebin)) / 2.f;
+            momentum[sign][quadrant].push_back(avgMom);
+            momentumErr[sign][quadrant].push_back(0);
+            dca[sign][quadrant].push_back(result.first);
+            dcaErr[sign][quadrant].push_back(result.second);
+
+            delete proj;
+          }
+        }
+
+        for (int quadrant = 0; quadrant < 4; quadrant++) {
+          if (dca[sign][quadrant].empty()) {
+            std::cout << std::format("CH{} Q{} ({}) d{}[0]=NA",
+                chamber+1, quadrant, (sign == 0 ? "+" : "-"), coordinate) << std::endl;
+            continue;
+          }
+          std::cout << std::format("CH{} Q{} ({}) d{}[0]={}",
+              chamber+1, quadrant, (sign == 0 ? "+" : "-"), coordinate, dca[sign][quadrant][0]) << std::endl;
+          TGraphErrors* gr = new TGraphErrors(momentum[sign][quadrant].size(),
+              momentum[sign][quadrant].data(),
+              dca[sign][quadrant].data(),
+              momentumErr[sign][quadrant].data(),
+              dcaErr[sign][quadrant].data());
+          gr->SetLineColor(colors[quadrant]);
+          gr->SetMarkerColor(colors[quadrant]);
+          gr->SetMarkerStyle(markers[sign]);
+          gr->SetMarkerSize(2);
+          gr->SetLineStyle(lineStyles[sign]);
+          mg->Add(gr,"pl");
+          auto* entry = legend->AddEntry(gr, (quadrants[quadrant] + (sign == 0 ? " (+)" : " (-)")).c_str(), "P");
+          entry->SetTextColor(colors[quadrant]);
+        }
+      }
+      mg->Draw("a");
+      mg->SetMinimum(-1);
+      mg->SetMaximum(1);
+      legend->Draw();
+
+      c.SaveAs(pdfFileName.c_str());
+    }
+  }
 }
 
 void PlotDXYProjection(const char* fullHistName, const char* fullHistNameME, TH2* histogram2, TH2* histogram2ME, double scaleME, float yMin, float yMax, int projRebin, TCanvas& c, bool subtractBackground, bool printFits = false)
@@ -752,7 +1006,40 @@ std::pair<double, double> PlotDXY(TH1* proj, TCanvas& c, std::string pdfName = "
   fgaus.SetParameter(3, 0);
   fgaus.SetParameter(4, 0);
   fgaus.SetParameter(5, 0);
-  proj->Fit("fgaus", "BQ");
+  proj->Fit("fgaus", "BQN");
+
+#define SIMPLE_FIT
+
+#ifdef SIMPLE_FIT
+  xPeak = fgaus.GetParameter(1);
+  TF1 fgaus2("fgaus2", "gausn(0)", xPeak - fgaus.GetParameter(2), xPeak + fgaus.GetParameter(2));
+  fgaus2.SetNpx(1000);
+  fgaus2.SetLineColor(kBlue);
+  fgaus2.SetParameter(0, fgaus.GetParameter(0));
+  fgaus2.SetParameter(1, xPeak);
+  fgaus2.SetParameter(2, fgaus.GetParameter(2));
+  proj->Fit("fgaus2", "BRQ");
+#else
+  TF1 fgaus2("fgaus2", VariableWidthGaussian, proj->GetXaxis()->GetXmin(), proj->GetXaxis()->GetXmax(), 10);
+  fgaus2.SetNpx(1000);
+  fgaus2.SetLineColor(kBlue);
+  fgaus2.SetParameter(0, fgaus.GetParameter(0));
+  fgaus2.SetParameter(1, xPeak);
+  fgaus2.SetParameter(2, fgaus.GetParameter(2));
+  fgaus2.SetParameter(3, 1);
+  fgaus2.FixParameter(4, 0);
+  fgaus2.FixParameter(5, 0);
+  fgaus2.FixParameter(6, 0);
+  fgaus2.SetParameter(7, 0);
+  fgaus2.SetParameter(8, 0);
+  fgaus2.SetParameter(9, 0);
+  proj->Fit("fgaus2", "BRQN");
+  //fgaus2.ReleaseParameter(4);
+  //fgaus2.ReleaseParameter(5);
+  //fgaus2.ReleaseParameter(6);
+  proj->Fit("fgaus2", "BRQ");
+#endif
+
 /*
   TF1 fcb("fcb","[0]*ROOT::Math::crystalball_function(x, [1], [2], [3], [4]) + [5]");
   fcb.SetParameters(100, 0.6, -2.13903e+06, 1, xPeak);
@@ -762,16 +1049,16 @@ std::pair<double, double> PlotDXY(TH1* proj, TCanvas& c, std::string pdfName = "
   //proj2->Fit("fcb", "BNQ");
   //proj2->Fit("fcb", "BQ");
 
-  proj2->GetXaxis()->SetRangeUser(-15.0, 15.0);
   proj2->Draw("E");
  */
   if (!pdfName.empty()) {
+    proj->GetXaxis()->SetRangeUser(-10.0, 10.0);
     c.SaveAs(pdfName.c_str());
   }
 
   //PlotDXYProjection(fullHistName.c_str(), fullHistNameME.c_str(), histogram2, histogram2ME, scaleME, -5.0, 5.0, 1, c, true, printFits);
 
-  return {fgaus.GetParameter(1), fgaus.GetParError(1)};
+  return {fgaus2.GetParameter(1), fgaus2.GetParError(1)};
   //return {fcb.GetParameter(4), fgaus.GetParError(4)};
 }
 
@@ -965,6 +1252,78 @@ void PlotZTrend(int n, double* xv, std::array<std::array<std::pair<double, doubl
   c.SaveAs(pdfFileName.c_str());
 }
 
+void PlotDECorrelations(TH2* hpos, TH2* hneg, TCanvas& c)
+{
+  if (!hpos || !hneg) return;
+
+  c.cd();
+
+  // set DE names in axis
+  for (int xbin = 1; xbin <= hpos->GetXaxis()->GetNbins(); xbin++) {
+    int deId = getDEFromIndex(xbin - 1);
+    hpos->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
+    hneg->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
+  }
+  for (int ybin = 1; ybin <= hpos->GetYaxis()->GetNbins(); ybin++) {
+    int deId = getDEFromIndex(ybin - 1);
+    hpos->GetYaxis()->SetBinLabel(ybin, TString::Format("DE%d", deId));
+    hneg->GetYaxis()->SetBinLabel(ybin, TString::Format("DE%d", deId));
+  }
+
+  TH2* hvec[2]{hpos, hneg};
+  for (int chIndex = 0; chIndex < 10; chIndex++) {
+    for (int i = 0; i < 2; i++) {
+      std::string histTitle = hvec[i]->GetTitle();
+      int deMin = getChamberOffset(chIndex);
+      int deMax = deMin + getNumDEinChamber(chIndex);
+      hvec[i]->GetXaxis()->SetRangeUser(deMin, deMax);
+      hvec[i]->SetTitle(std::format("CH{} {}", chIndex+1, histTitle).c_str());
+      hvec[i]->Draw("col");
+      c.SaveAs(pdfFileName.c_str());
+    }
+  }
+}
+
+void PlotTrackSlopes(TH2* hxpos, TH2* hxneg, TH2* hypos, TH2* hyneg, TCanvas& c)
+{
+  if (!hxpos || !hxneg || !hypos || !hyneg) return;
+
+  c.cd();
+  c.Clear();
+  c.Divide(2,2);
+
+  c.cd(1);
+  TH2* h2 = hxpos;
+  h2->RebinX(10);
+  h2->GetXaxis()->SetRangeUser(-0.2, 0.2);
+  h2->GetYaxis()->SetRangeUser(-0.02, 0.02);
+  h2->Draw("col");
+
+  c.cd(2);
+  h2 = hxneg;
+  h2->RebinX(10);
+  h2->GetXaxis()->SetRangeUser(-0.2, 0.2);
+  h2->GetYaxis()->SetRangeUser(-0.02, 0.02);
+  h2->Draw("col");
+
+  c.cd(3);
+  h2 = hypos;
+  h2->RebinX(10);
+  h2->GetXaxis()->SetRangeUser(-0.2, 0.2);
+  h2->GetYaxis()->SetRangeUser(-0.02, 0.02);
+  h2->Draw("col");
+
+  c.cd(4);
+  h2 = hyneg;
+  h2->RebinX(10);
+  h2->GetXaxis()->SetRangeUser(-0.2, 0.2);
+  h2->GetYaxis()->SetRangeUser(-0.02, 0.02);
+  h2->Draw("col");
+
+  c.SaveAs(pdfFileName.c_str());
+  c.Clear();
+}
+
 void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisResults.root", const char* _pdfFileName = "mftMchResiduals.pdf")
 {
   //fAnalysisResults = new TFile("AnalysisResults.root");
@@ -972,11 +1331,42 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   fAnalysisResults = new TFile(_rootFileName);
   pdfFileName = _pdfFileName;
 
-  int wagonId = -1;
+  double epsilon = 1.e-5;
+  double mchMomMin = 50;
+
+  //int wagonId = -1;
+
+  // LHC24am without MFT corrections
   //int wagonId = 45637;
+  // LHC24an with MFT corrections
   //int wagonId = 47795;
 
-  std::string taskPath = (wagonId > 0) ? std::format("muon-global-alignment_id{}", wagonId) : "muon-global-alignment";
+  // LHC24an without MFT corrections
+  //int wagonId = 45637;
+  // LHC24an with MFT corrections, p > 30 GeV/c
+  //int wagonId = 47795;
+  // LHC24an with MFT corrections, p > 15 GeV/c
+  //int wagonId = 47994;
+
+  // ppRef without MFT corrections
+  //int wagonId = 47792;
+  // ppRef with MFT corrections
+  //int wagonId = 47794;
+
+  // ppRef without MFT corrections - low momentum version
+  //int wagonId = 47890;
+  // ppRef with MFT corrections
+  //int wagonId = 47888;
+
+  std::string taskPath = "muon-global-alignment"; // = (wagonId > 0) ? std::format("muon-global-alignment_id{}", wagonId) : "muon-global-alignment";
+  //taskPath = "muon-global-alignment_id47994";
+  //taskPath = "muon-global-alignment_p-15-pt-2_id47994";
+  //taskPath = "muon-global-alignment_p-20-pt-2_id47994";
+  //taskPath = "muon-global-alignment_p-50-pt-4_id47994";
+
+  //taskPath = "muon-global-alignment_id48150";
+  //taskPath = "muon-global-alignment_id48242";
+  //taskPath = "muon-global-alignment_id48243";
 
   std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
   //std::array<std::string, 1> quadrants = {"Q0"};
@@ -1027,48 +1417,147 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   TCanvas c5("c5", "c5", 1200, 800);
   c4.SaveAs("residuals_groups.pdf(");
 
+  c.cd();
   TH1* h1 = GetTH1(fAnalysisResults, (taskPath + "/DCA/vertex_z").c_str());
   if (h1) {
     h1->Draw();
     c.SaveAs(pdfFileName.c_str());
   }
 
+  TH2* h2 = GetTH2(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_y_vs_x").c_str());
+  if (h2) {
+    h2->Draw("colz");
+    c.SaveAs(pdfFileName.c_str());
+  }
+  //c.SaveAs((pdfFileName + ")").c_str());
+  //return;
+
   c.Clear();
   c.Divide(2, 2);
 
-  auto* hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_x_vs_sign_vs_quadrant_vs_vz").c_str());
-  for (int k = 0; k < 2; k++) {
-    hn->GetAxis(2)->SetRange(k + 1, k + 1);
-    for (int q = 0; q < quadrants.size(); q++) {
-      hn->GetAxis(1)->SetRange(q + 1, q + 1);
-      if (q == 0) c.cd(2);
-      if (q == 1) c.cd(1);
-      if (q == 2) c.cd(3);
-      if (q == 3) c.cd(4);
+  std::cout << "Plotting MCH DCA(x)" << std::endl;
+  auto* hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_x_vs_sign_vs_quadrant_vs_mom").c_str());
+  if (hn) {
+    // axes assignments:
+    // 0: momentum
+    // 1: quadrant
+    // 2: sign
+    // 3: DCA
+    int pAxisId = 0;
+    int quadrantAxisId = 1;
+    int signAxisId = 2;
+    int dcaAxisId = 3;
 
-      auto* proj = hn->Projection(3);
-      proj->SetTitle(std::format("MCH DCA(x), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
-      DCAx[k][q] = PlotDCAMCH(proj);
+    // p >= xx GeV/c
+    int momBin = hn->GetAxis(pAxisId)->FindBin(mchMomMin + epsilon);
+    int momBinMax = hn->GetAxis(pAxisId)->GetNbins();
+    hn->GetAxis(pAxisId)->SetRange(momBin, momBinMax);
+    for (int k = 0; k < 2; k++) {
+      hn->GetAxis(signAxisId)->SetRange(k + 1, k + 1);
+      for (int q = 0; q < quadrants.size(); q++) {
+        hn->GetAxis(quadrantAxisId)->SetRange(q + 1, q + 1);
+        if (q == 0) c.cd(2);
+        if (q == 1) c.cd(1);
+        if (q == 2) c.cd(3);
+        if (q == 3) c.cd(4);
+
+        auto* proj = hn->Projection(dcaAxisId);
+        proj->SetTitle(std::format("MCH DCA(x), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
+        DCAx[k][q] = PlotDCAMCH(proj);
+      }
+      c.SaveAs(pdfFileName.c_str());
     }
-    c.SaveAs(pdfFileName.c_str());
+
+    // DCA as function of momentum
+  } else {
+    hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_x_vs_sign_vs_quadrant_vs_vz").c_str());
+    for (int k = 0; k < 2; k++) {
+      hn->GetAxis(2)->SetRange(k + 1, k + 1);
+      for (int q = 0; q < quadrants.size(); q++) {
+        hn->GetAxis(1)->SetRange(q + 1, q + 1);
+        if (q == 0) c.cd(2);
+        if (q == 1) c.cd(1);
+        if (q == 2) c.cd(3);
+        if (q == 3) c.cd(4);
+
+        auto* proj = hn->Projection(3);
+        proj->SetTitle(std::format("MCH DCA(x), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
+        DCAx[k][q] = PlotDCAMCH(proj);
+        delete proj;
+      }
+      c.SaveAs(pdfFileName.c_str());
+    }
   }
 
-  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_y_vs_sign_vs_quadrant_vs_vz").c_str());
-  for (int k = 0; k < 2; k++) {
-    hn->GetAxis(2)->SetRange(k + 1, k + 1);
-    for (int q = 0; q < quadrants.size(); q++) {
-      hn->GetAxis(1)->SetRange(q + 1, q + 1);
-      if (q == 0) c.cd(2);
-      if (q == 1) c.cd(1);
-      if (q == 2) c.cd(3);
-      if (q == 3) c.cd(4);
+  std::cout << "Plotting MCH DCA(y)" << std::endl;
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_y_vs_sign_vs_quadrant_vs_mom").c_str());
+  if (hn) {
+    // axes assignments:
+    // 0: momentum
+    // 1: quadrant
+    // 2: sign
+    // 3: DCA
+    int pAxisId = 0;
+    int quadrantAxisId = 1;
+    int signAxisId = 2;
+    int dcaAxisId = 3;
 
-      auto* proj = hn->Projection(3);
-      proj->SetTitle(std::format("MCH DCA(y), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
-      DCAy[k][q] = PlotDCAMCH(proj);
+    // p >= xx GeV/c
+    int momBin = hn->GetAxis(pAxisId)->FindBin(mchMomMin + epsilon);
+    int momBinMax = hn->GetAxis(pAxisId)->GetNbins();
+    hn->GetAxis(pAxisId)->SetRange(momBin, momBinMax);
+    for (int k = 0; k < 2; k++) {
+      hn->GetAxis(signAxisId)->SetRange(k + 1, k + 1);
+      for (int q = 0; q < quadrants.size(); q++) {
+        hn->GetAxis(quadrantAxisId)->SetRange(q + 1, q + 1);
+        if (q == 0) c.cd(2);
+        if (q == 1) c.cd(1);
+        if (q == 2) c.cd(3);
+        if (q == 3) c.cd(4);
+
+        auto* proj = hn->Projection(dcaAxisId);
+        proj->SetTitle(std::format("MCH DCA(y), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
+        DCAy[k][q] = PlotDCAMCH(proj);
+        delete proj;
+      }
+      c.SaveAs(pdfFileName.c_str());
     }
-    c.SaveAs(pdfFileName.c_str());
+  } else {
+    hn = GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_y_vs_sign_vs_quadrant_vs_vz").c_str());
+    for (int k = 0; k < 2; k++) {
+      hn->GetAxis(2)->SetRange(k + 1, k + 1);
+      for (int q = 0; q < quadrants.size(); q++) {
+        hn->GetAxis(1)->SetRange(q + 1, q + 1);
+        if (q == 0) c.cd(2);
+        if (q == 1) c.cd(1);
+        if (q == 2) c.cd(3);
+        if (q == 3) c.cd(4);
+
+        auto* proj = hn->Projection(3);
+        proj->SetTitle(std::format("MCH DCA(y), Q{} {}", q, (k == 0 ? "+" : "-")).c_str());
+        DCAy[k][q] = PlotDCAMCH(proj);
+      }
+      c.SaveAs(pdfFileName.c_str());
+    }
   }
+
+  std::cout << "Plotting MCH DCA(x/y) vs. momentum" << std::endl;
+  PlotDCAMCHvsMomentum(GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_x_vs_sign_vs_quadrant_vs_mom").c_str()),
+                       GetTHnSparse(fAnalysisResults, (taskPath + "/DCA/MCH/DCA_y_vs_sign_vs_quadrant_vs_mom").c_str()),
+                       c);
+
+
+  std::cout << "Plotting MCH track slopes" << std::endl;
+  TH2* hxpos = GetTH2(fAnalysisResults, (taskPath + "/residuals/track_dslopex_vs_slopex_pos").c_str());
+  TH2* hxneg = GetTH2(fAnalysisResults, (taskPath + "/residuals/track_dslopex_vs_slopex_neg").c_str());
+  TH2* hypos = GetTH2(fAnalysisResults, (taskPath + "/residuals/track_dslopey_vs_slopey_pos").c_str());
+  TH2* hyneg = GetTH2(fAnalysisResults, (taskPath + "/residuals/track_dslopey_vs_slopey_neg").c_str());
+  PlotTrackSlopes(hxpos, hxneg, hypos, hyneg, c);
+
+  std::cout << "Plotting DE correlations" << std::endl;
+  TH2* hpos = GetTH2(fAnalysisResults, (taskPath + "/residuals/DE_correlation_pos").c_str());
+  TH2* hneg = GetTH2(fAnalysisResults, (taskPath + "/residuals/DE_correlation_neg").c_str());
+  PlotDECorrelations(hpos, hneg, c);
 
   //c.Clear();
   //c.SaveAs((pdfFileName + ")").c_str());
@@ -1076,86 +1565,87 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
 
   hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/track_dx").c_str());
   if (hn) {
-  TH2* hResidualXp = new TH2F("hResidualXp", "Track #Deltax, positive",
-      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
-      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
-  TH2* hResidualXn = new TH2F("hResidualXn", "Track #Deltax, negative",
-      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
-      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
-  std::array<TH2*, 2> hResidualX{hResidualXp, hResidualXn};
-  //hResidualX->Reset();
-  for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
-    hn->GetAxis(0)->SetRange(i + 1, i + 1);
-    for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
-      hn->GetAxis(1)->SetRange(j + 1, j + 1);
-      for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
-        hn->GetAxis(2)->SetRange(k + 1, k + 1);
+    TH2* hResidualXp = new TH2F("hResidualXp", "Track #Deltax, positive",
+        hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+        hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+    TH2* hResidualXn = new TH2F("hResidualXn", "Track #Deltax, negative",
+        hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+        hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+    std::array<TH2*, 2> hResidualX{hResidualXp, hResidualXn};
+    //hResidualX->Reset();
+    for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
+      hn->GetAxis(0)->SetRange(i + 1, i + 1);
+      for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
+        hn->GetAxis(1)->SetRange(j + 1, j + 1);
+        for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
+          hn->GetAxis(2)->SetRange(k + 1, k + 1);
 
-        hResidualX[k]->SetBinContent(i + 1, j + 1, -100);
-        hResidualX[k]->SetBinError(i + 1, j + 1, 0);
-        auto* proj = hn->Projection(3);
-        if (proj->GetEntries() < 10) continue;
-        proj->SetName(std::format("track_dx_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
-        proj->SetTitle(std::format("Track #Deltax, X={} Y={} Q={}", i, j, (k == 0 ? "positive" : "negative")).c_str());
-        auto mean = PlotDXY(proj, c4, "residuals_tracks.pdf");
-        hResidualX[k]->SetBinContent(i + 1, j + 1, mean.first);
-        hResidualX[k]->SetBinError(i + 1, j + 1, mean.second);
+          hResidualX[k]->SetBinContent(i + 1, j + 1, -100);
+          hResidualX[k]->SetBinError(i + 1, j + 1, 0);
+          auto* proj = hn->Projection(3);
+          if (proj->GetEntries() < 10) continue;
+          proj->SetName(std::format("track_dx_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+          proj->SetTitle(std::format("Track #Deltax, X={} Y={} Q={}", i, j, (k == 0 ? "positive" : "negative")).c_str());
+          auto mean = PlotDXY(proj, c4, "residuals_tracks.pdf");
+          hResidualX[k]->SetBinContent(i + 1, j + 1, mean.first);
+          hResidualX[k]->SetBinError(i + 1, j + 1, mean.second);
+        }
       }
     }
-  }
-  c.cd();
-  hResidualX[0]->SetMinimum(-1.1);
-  hResidualX[0]->SetMaximum(1.1);
-  hResidualX[0]->Draw("colz");
-  c.SaveAs(pdfFileName.c_str());
-  hResidualX[1]->SetMinimum(-1.1);
-  hResidualX[1]->SetMaximum(1.1);
-  hResidualX[1]->Draw("colz");
-  c.SaveAs(pdfFileName.c_str());
+    c.cd();
+    hResidualX[0]->SetMinimum(-1.1);
+    hResidualX[0]->SetMaximum(1.1);
+    hResidualX[0]->Draw("colz");
+    c.SaveAs(pdfFileName.c_str());
+    hResidualX[1]->SetMinimum(-1.1);
+    hResidualX[1]->SetMaximum(1.1);
+    hResidualX[1]->Draw("colz");
+    c.SaveAs(pdfFileName.c_str());
   }
 
   hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/track_dy").c_str());
   if (hn) {
-  TH2* hResidualYp = new TH2F("hResidualXp", "Track #Deltay, positive",
-      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
-      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
-  TH2* hResidualYn = new TH2F("hResidualXn", "Track #Deltay, negative",
-      hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
-      hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
-  std::array<TH2*, 2> hResidualY{hResidualYp, hResidualYn};
-  for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
-    hn->GetAxis(0)->SetRange(i + 1, i + 1);
-    for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
-      hn->GetAxis(1)->SetRange(j + 1, j + 1);
-      for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
-        hn->GetAxis(2)->SetRange(k + 1, k + 1);
+    TH2* hResidualYp = new TH2F("hResidualXp", "Track #Deltay, positive",
+        hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+        hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+    TH2* hResidualYn = new TH2F("hResidualXn", "Track #Deltay, negative",
+        hn->GetAxis(0)->GetNbins(), hn->GetAxis(0)->GetXmin(), hn->GetAxis(0)->GetXmax(),
+        hn->GetAxis(1)->GetNbins(), hn->GetAxis(1)->GetXmin(), hn->GetAxis(1)->GetXmax());
+    std::array<TH2*, 2> hResidualY{hResidualYp, hResidualYn};
+    for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
+      hn->GetAxis(0)->SetRange(i + 1, i + 1);
+      for (int j = 0; j < hn->GetAxis(1)->GetNbins(); j++) {
+        hn->GetAxis(1)->SetRange(j + 1, j + 1);
+        for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
+          hn->GetAxis(2)->SetRange(k + 1, k + 1);
 
-        hResidualY[k]->SetBinContent(i + 1, j + 1, -100);
-        hResidualY[k]->SetBinError(i + 1, j + 1, 0);
-        auto* proj = hn->Projection(3);
-        if (proj->GetEntries() < 10) continue;
-        proj->SetName(std::format("track_dy_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
-        proj->SetTitle(std::format("Track #Deltay, X={} Y={} Q={}", i, j, (k == 0 ? "positive" : "negative")).c_str());
-        auto mean = PlotDXY(proj, c4, "residuals_tracks.pdf");
-        hResidualY[k]->SetBinContent(i + 1, j + 1, mean.first);
-        hResidualY[k]->SetBinError(i + 1, j + 1, mean.second);
+          hResidualY[k]->SetBinContent(i + 1, j + 1, -100);
+          hResidualY[k]->SetBinError(i + 1, j + 1, 0);
+          auto* proj = hn->Projection(3);
+          if (proj->GetEntries() < 10) continue;
+          proj->SetName(std::format("track_dy_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+          proj->SetTitle(std::format("Track #Deltay, X={} Y={} Q={}", i, j, (k == 0 ? "positive" : "negative")).c_str());
+          auto mean = PlotDXY(proj, c4, "residuals_tracks.pdf");
+          hResidualY[k]->SetBinContent(i + 1, j + 1, mean.first);
+          hResidualY[k]->SetBinError(i + 1, j + 1, mean.second);
+        }
       }
     }
-  }
-  c.cd();
-  hResidualY[0]->SetMinimum(-1.1);
-  hResidualY[0]->SetMaximum(1.1);
-  hResidualY[0]->Draw("colz");
-  c.SaveAs(pdfFileName.c_str());
-  hResidualY[1]->SetMinimum(-1.1);
-  hResidualY[1]->SetMaximum(1.1);
-  hResidualY[1]->Draw("colz");
-  c.SaveAs(pdfFileName.c_str());
+    c.cd();
+    hResidualY[0]->SetMinimum(-1.1);
+    hResidualY[0]->SetMaximum(1.1);
+    hResidualY[0]->Draw("colz");
+    c.SaveAs(pdfFileName.c_str());
+    hResidualY[1]->SetMinimum(-1.1);
+    hResidualY[1]->SetMaximum(1.1);
+    hResidualY[1]->Draw("colz");
+    c.SaveAs(pdfFileName.c_str());
   }
 
   c4.Clear();
   c4.SaveAs("residuals_tracks.pdf)");
 
+  /*
   hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_chamber").c_str());
   for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
     hn->GetAxis(0)->SetRange(i + 1, i + 1);
@@ -1187,6 +1677,119 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
       }
     }
   }
+  */
+
+  // axes assignments (old version)
+  // 0: DE index
+  // 1: quadrant
+  // 2: sign
+  // 3: residual
+
+  // axes assignments (new version)
+  // 0: residual
+  // 1: DE index
+  // 2: quadrant
+  // 3: sign
+  // 4: momentum
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_de").c_str());
+  if (hn) {
+    int residualAxisId = 0;
+    int deAxisId = 1;
+    int quadrantAxisId = 2;
+    int signAxisId = 3;
+    int pAxisId = 4;
+
+    if (hn->GetNdimensions() == 4) {
+      residualAxisId = 3;
+      deAxisId = 0;
+      quadrantAxisId = 1;
+      signAxisId = 2;
+      pAxisId = -1;
+    }
+
+    hn->GetAxis(0)->SetRange(0, -1);
+    hn->GetAxis(1)->SetRange(0, -1);
+    hn->GetAxis(2)->SetRange(0, -1);
+    hn->GetAxis(3)->SetRange(0, -1);
+    if (pAxisId >= 0) {
+      // p >= xx GeV/c
+      int momBin = hn->GetAxis(pAxisId)->FindBin(mchMomMin + epsilon);
+      int momBinMax = hn->GetAxis(pAxisId)->GetNbins();
+      hn->GetAxis(pAxisId)->SetRange(momBin, momBinMax);
+    }
+
+    // loop on chamber ID
+    for (int i = 0; i < 10; i++) {
+      int deIdMin = getChamberOffset(i);
+      int deIdMax = deIdMin + getNumDEinChamber(i) - 1;
+      hn->GetAxis(deAxisId)->SetRange(deIdMin + 1, deIdMax + 1);
+      // loop on quadrant
+      for (int j = 0; j < hn->GetAxis(quadrantAxisId)->GetNbins(); j++) {
+        hn->GetAxis(quadrantAxisId)->SetRange(j + 1, j + 1);
+        // loop on charge
+        for (int k = 0; k < hn->GetAxis(signAxisId)->GetNbins(); k++) {
+          hn->GetAxis(signAxisId)->SetRange(k + 1, k + 1);
+
+          auto* proj = hn->Projection(residualAxisId);
+          proj->SetName(std::format("dx_vs_chamber_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+          proj->SetTitle(std::format("#Deltax, Q{} CH{} {}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+          meanDx[k][j][i] = PlotDXY(proj, c2, "residuals_CH.pdf");
+        }
+      }
+    }
+  }
+
+  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de").c_str());
+  if (hn) {
+    int residualAxisId = 0;
+    int deAxisId = 1;
+    int quadrantAxisId = 2;
+    int signAxisId = 3;
+    int pAxisId = 4;
+
+    if (hn->GetNdimensions() == 4) {
+      residualAxisId = 3;
+      deAxisId = 0;
+      quadrantAxisId = 1;
+      signAxisId = 2;
+      pAxisId = -1;
+    }
+
+    hn->GetAxis(0)->SetRange(0, -1);
+    hn->GetAxis(1)->SetRange(0, -1);
+    hn->GetAxis(2)->SetRange(0, -1);
+    hn->GetAxis(3)->SetRange(0, -1);
+    if (pAxisId >= 0) {
+      // p >= xx GeV/c
+      int momBin = hn->GetAxis(pAxisId)->FindBin(mchMomMin + epsilon);
+      int momBinMax = hn->GetAxis(pAxisId)->GetNbins();
+      hn->GetAxis(pAxisId)->SetRange(momBin, momBinMax);
+    }
+
+    // loop on chamber ID
+    for (int i = 0; i < 10; i++) {
+      int deIdMin = getChamberOffset(i);
+      int deIdMax = deIdMin + getNumDEinChamber(i) - 1;
+      hn->GetAxis(deAxisId)->SetRange(deIdMin + 1, deIdMax + 1);
+      // loop on quadrant
+      for (int j = 0; j < hn->GetAxis(quadrantAxisId)->GetNbins(); j++) {
+        hn->GetAxis(quadrantAxisId)->SetRange(j + 1, j + 1);
+        // loop on charge
+        for (int k = 0; k < hn->GetAxis(signAxisId)->GetNbins(); k++) {
+          hn->GetAxis(signAxisId)->SetRange(k + 1, k + 1);
+
+          auto* proj = hn->Projection(residualAxisId);
+          proj->SetName(std::format("dy_vs_chamber_{}_{}_{}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+          proj->SetTitle(std::format("#Deltay, Q{} CH{} {}", j, i+1, (k == 0 ? "positive" : "negative")).c_str());
+          meanDy[k][j][i] = PlotDXY(proj, c2, "residuals_CH.pdf");
+        }
+      }
+    }
+  }
+
+  c2.Clear();
+  c2.SaveAs("residuals_CH.pdf)");
+
 /**/
 
   double xv[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
@@ -1207,243 +1810,349 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   PlotZTrend(10, defaultChamberZ, meanDy[1], DCAy[1], "#Delta(y) vs. chamber z (negative);chamber z (cm); #Delta(y) (cm)", -1.0, 1.0, c);
   PlotZTrend(10, defaultChamberZ, meanDy[1], DCAy[1], "#Delta(y) vs. chamber z (negative);chamber z (cm); #Delta(y) (cm)", -0.5, 0.5, c);
 
+  PlotChamberResidualvsMomentum(GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_de").c_str()),
+                                GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de").c_str()),
+                                c);
 
   //-------------------
   // DE residuals
   //-------------------
 
-  std::vector<std::pair<std::string, std::vector<int>>> deGroups {
-    {"DE100", {100}},
-    {"DE101", {101}},
-    {"DE102", {102}},
-    {"DE103", {103}},
-    {"DE200", {200}},
-    {"DE201", {201}},
-    {"DE202", {202}},
-    {"DE203", {203}},
-    {"DE300", {300}},
-    {"DE301", {301}},
-    {"DE302", {302}},
-    {"DE303", {303}},
-    {"DE400", {400}},
-    {"DE401", {401}},
-    {"DE402", {402}},
-    {"DE403", {403}},
-    {"CH5L", {505, 506, 507, 508, 509, 510, 511, 512, 513}},
-    {"CH5R", {500, 501, 502, 503, 504, 514, 515, 516, 517}},
-    {"CH6L", {605, 606, 607, 608, 609, 610, 611, 612, 613}},
-    {"CH6R", {600, 601, 602, 603, 604, 614, 615, 616, 617}},
-    {"CH7L", {707, 708, 709, 710, 711, 712, 713, 714, 715, 716, 717, 718, 719}},
-    {"CH7R", {700, 701, 702, 703, 704, 706, 707, 720, 721, 722, 723, 724, 725}},
-    {"CH8L", {807, 808, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818, 819}},
-    {"CH8R", {800, 801, 802, 803, 804, 806, 807, 820, 821, 822, 823, 824, 825}},
-    {"CH9L", {907, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919}},
-    {"CH9R", {900, 901, 902, 903, 904, 906, 907, 920, 921, 922, 923, 924, 925}},
-    {"CH10L", {1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019}},
-    {"CH10R", {1000, 1001, 1002, 1003, 1004, 1006, 1007, 1020, 1021, 1022, 1023, 1024, 1025}}
+  std::vector<std::tuple<std::string, std::string, std::string, std::vector<int>>> deGroups {
+    {"DE100", "CH1", "Q0", {100}},
+    {"DE101", "CH1", "Q1", {101}},
+    {"DE102", "CH1", "Q2", {102}},
+    {"DE103", "CH1", "Q3", {103}},
+    {"DE200", "CH2", "Q0", {200}},
+    {"DE201", "CH2", "Q1", {201}},
+    {"DE202", "CH2", "Q2", {202}},
+    {"DE203", "CH2", "Q3", {203}},
+    {"DE300", "CH3", "Q0", {300}},
+    {"DE301", "CH3", "Q1", {301}},
+    {"DE302", "CH3", "Q2", {302}},
+    {"DE303", "CH3", "Q3", {303}},
+    {"DE400", "CH4", "Q0", {400}},
+    {"DE401", "CH4", "Q1", {401}},
+    {"DE402", "CH4", "Q2", {402}},
+    {"DE403", "CH4", "Q3", {403}},
+    {"CH5L", "CH5", "L", {505, 506, 507, 508, 509, 510, 511, 512, 513}},
+    {"CH5R", "CH5", "R", {500, 501, 502, 503, 504, 514, 515, 516, 517}},
+    {"CH6L", "CH6", "L", {605, 606, 607, 608, 609, 610, 611, 612, 613}},
+    {"CH6R", "CH6", "R", {600, 601, 602, 603, 604, 614, 615, 616, 617}},
+    {"CH7L", "CH7", "L", {707, 708, 709, 710, 711, 712, 713, 714, 715, 716, 717, 718, 719}},
+    {"CH7R", "CH7", "R", {700, 701, 702, 703, 704, 706, 707, 720, 721, 722, 723, 724, 725}},
+    {"CH8L", "CH8", "L", {807, 808, 809, 810, 811, 812, 813, 814, 815, 816, 817, 818, 819}},
+    {"CH8R", "CH8", "R", {800, 801, 802, 803, 804, 806, 807, 820, 821, 822, 823, 824, 825}},
+    {"CH9L", "CH9", "L", {907, 908, 909, 910, 911, 912, 913, 914, 915, 916, 917, 918, 919}},
+    {"CH9R", "CH9", "R", {900, 901, 902, 903, 904, 906, 907, 920, 921, 922, 923, 924, 925}},
+    {"CH10L", "CH10", "L", {1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014, 1015, 1016, 1017, 1018, 1019}},
+    {"CH10R", "CH10", "R", {1000, 1001, 1002, 1003, 1004, 1006, 1007, 1020, 1021, 1022, 1023, 1024, 1025}}
   };
 
   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
 
-  std::ofstream corrections_x("corrections-x.txt");
+  std::ofstream corrections_x("shifts-x.txt");
+  std::ofstream corrections_y("shifts-y.txt");
 
-  // axis assignments:
+  // axis assignments (old version with 4 axes):
   // 0: DE index
   // 1: quadrant
   // 2: charge sign
   // 3: residual
 
+  // axis assignments (new version with 5 axes):
+  // 0: residual
+  // 1: DE index
+  // 2: quadrant
+  // 3: charge sign
+  // 4: momentum
+
   // -----------------
   // X direction
 
-  hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_de").c_str());
-  TH1* histDxVsDE[2] = {nullptr, nullptr};
-  for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
-    //hn->GetAxis(2)->SetRange(k + 1, k + 1);
-    //hn->GetAxis(0)->SetRange(1, hn->GetAxis(0)->GetNbins());
-    histDxVsDE[k] = hn->Projection(0);
-    histDxVsDE[k]->Reset();
-    histDxVsDE[k]->SetName(std::format("dx_vs_de_{}", (k == 0 ? "positive" : "negative")).c_str());
-    histDxVsDE[k]->SetTitle("#Deltax vs. DE");
-  }
-  for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
-    hn->GetAxis(0)->SetRange(i + 1, i + 1);
-    for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
-      hn->GetAxis(2)->SetRange(k + 1, k + 1);
+  THnSparse* hDE[2] = {
+      GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_de").c_str()),
+      GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de").c_str())
+  };
+  if (hDE[0] && hDE[1]) {
 
-      auto* proj = hn->Projection(3);
-      proj->SetName(std::format("dx_vs_de_{}_{}", i+1, (k == 0 ? "positive" : "negative")).c_str());
-      proj->SetTitle(std::format("#Deltax, DE{} {}", getDEFromIndex(i), (k == 0 ? "positive" : "negative")).c_str());
-      auto mean = PlotDXY(proj, c3, "residuals_DE.pdf");
-      histDxVsDE[k]->SetBinContent(i + 1, mean.first);
-      histDxVsDE[k]->SetBinError(i + 1, mean.second);
+    std::ofstream correctionsJson("corrections.json");
+    correctionsJson << "{" << std::endl;
+
+    int residualAxisId = 0;
+    int deAxisId = 1;
+    int quadrantAxisId = 2;
+    int signAxisId = 3;
+    int pAxisId = 4;
+
+    if (hDE[0]->GetNdimensions() == 4) {
+      residualAxisId = 3;
+      deAxisId = 0;
+      quadrantAxisId = 1;
+      signAxisId = 2;
+      pAxisId = -1;
     }
-  }
-  c.Clear();
-  c.cd();
-  histDxVsDE[0]->SetLineColor(kBlue);
-  histDxVsDE[0]->SetMinimum(-1.0);
-  histDxVsDE[0]->SetMaximum(1.0);
-  histDxVsDE[0]->Draw("E");
-  histDxVsDE[1]->SetLineColor(kRed);
-  histDxVsDE[1]->Draw("E same");
-  c.SaveAs(pdfFileName.c_str());
 
-  // set DE names in X axis
-  for (int xbin = 1; xbin <= histDxVsDE[0]->GetXaxis()->GetNbins(); xbin++) {
-    int deId = getDEFromIndex(xbin - 1);
-    histDxVsDE[0]->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
-  }
+    for (int xy = 0; xy < 2; xy++) {
+      hDE[xy]->GetAxis(0)->SetRange(0, -1);
+      hDE[xy]->GetAxis(1)->SetRange(0, -1);
+      hDE[xy]->GetAxis(2)->SetRange(0, -1);
+      hDE[xy]->GetAxis(3)->SetRange(0, -1);
+      if (pAxisId >= 0) {
+        // p >= xx GeV/c
+        int momBin = hDE[xy]->GetAxis(pAxisId)->FindBin(mchMomMin + epsilon);
+        int momBinMax = hDE[xy]->GetAxis(pAxisId)->GetNbins();
+        hDE[xy]->GetAxis(pAxisId)->SetRange(momBin, momBinMax);
+      }
 
-  std::string histTitle = histDxVsDE[0]->GetTitle();
-  for (int chIndex = 0; chIndex < 10; chIndex++) {
-    int deMin = getChamberOffset(chIndex);
-    int deMax = deMin + getNumDEinChamber(chIndex);
-    histDxVsDE[0]->GetXaxis()->SetRangeUser(deMin, deMax);
-    histDxVsDE[0]->SetTitle((histTitle + "(CH" + std::to_string(chIndex+1) + ")").c_str());
-    histDxVsDE[0]->SetMinimum(-5.0);
-    histDxVsDE[0]->SetMaximum(5.0);
-    c.SaveAs(pdfFileName.c_str());
+      TH1* histDxyVsDE[2] = {nullptr, nullptr};
+      for (int k = 0; k < hDE[xy]->GetAxis(signAxisId)->GetNbins(); k++) {
+        //hDE[xy]->GetAxis(2)->SetRange(k + 1, k + 1);
+        //hDE[xy]->GetAxis(0)->SetRange(1, hDE[xy]->GetAxis(0)->GetNbins());
+        histDxyVsDE[k] = hDE[xy]->Projection(deAxisId);
+        histDxyVsDE[k]->Reset();
+        histDxyVsDE[k]->SetName(std::format("d{}_vs_de_{}", (xy == 0 ? "x" : "y"), (k == 0 ? "positive" : "negative")).c_str());
+        histDxyVsDE[k]->SetTitle(std::format("#Delta{} vs. DE", (xy == 0 ? "x" : "y")).c_str());
+      }
+      for (int i = 0; i < hDE[xy]->GetAxis(deAxisId)->GetNbins(); i++) {
+        hDE[xy]->GetAxis(deAxisId)->SetRange(i + 1, i + 1);
+        for (int k = 0; k < hDE[xy]->GetAxis(signAxisId)->GetNbins(); k++) {
+          hDE[xy]->GetAxis(signAxisId)->SetRange(k + 1, k + 1);
 
-    histDxVsDE[0]->SetMinimum(-1.0);
-    histDxVsDE[0]->SetMaximum(1.0);
-    c.SaveAs(pdfFileName.c_str());
-
-    histDxVsDE[0]->SetMinimum(-0.5);
-    histDxVsDE[0]->SetMaximum(0.5);
-    c.SaveAs(pdfFileName.c_str());
-
-    if (chIndex < 4) {
-      histDxVsDE[0]->SetMinimum(-0.1);
-      histDxVsDE[0]->SetMaximum(0.1);
-      c.SaveAs(pdfFileName.c_str());
-    }
-  }
-
-  //   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
-  hn->GetAxis(1)->SetRange(1, hn->GetAxis(1)->GetNbins());
-  for (const auto& group : deGroups) {
-    hDEResiduals[0].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
-    // loop over charge sign
-    for (int charge = 0; charge < 2; charge++) {
-      hn->GetAxis(2)->SetRange(charge + 1, charge + 1);
-      // loop over DE ids
-      for (auto deId : group.second) {
-        auto deIndex = getDEindex(deId);
-        hn->GetAxis(0)->SetRange(deIndex + 1, deIndex + 1);
-        TH1* proj = hn->Projection(3);
-        if (hDEResiduals[0].back()[charge]) {
-          hDEResiduals[0].back()[charge]->Add(proj);
-          delete proj;
-        } else {
-          proj->SetTitle(std::format("{} - #Deltax, {}", group.first, (charge == 0 ? "positive" : "negative")).c_str());
-          hDEResiduals[0].back()[charge] = proj;
+          auto* proj = hDE[xy]->Projection(residualAxisId);
+          proj->SetName(std::format("d{}_vs_de_{}_{}", (xy == 0 ? "x" : "y"), i+1, (k == 0 ? "positive" : "negative")).c_str());
+          proj->SetTitle(std::format("#Delta{}, DE{} {}", (xy == 0 ? "x" : "y"), getDEFromIndex(i), (k == 0 ? "positive" : "negative")).c_str());
+          auto mean = PlotDXY(proj, c3, "residuals_DE.pdf");
+          histDxyVsDE[k]->SetBinContent(i + 1, mean.first);
+          histDxyVsDE[k]->SetBinError(i + 1, mean.second);
         }
       }
-      auto mean = PlotDXY(hDEResiduals[0].back()[charge], c5, "residuals_groups.pdf");
-      corrections_x << std::format("{} ({}): dx = {:0.3f} +/- {:0.3f}",
-          group.first, (charge == 0 ? "positive" : "negative"), mean.first, mean.second) << std::endl;
+      c.Clear();
+      c.cd();
+      histDxyVsDE[0]->SetLineColor(kBlue);
+      histDxyVsDE[0]->SetMinimum(-1.0);
+      histDxyVsDE[0]->SetMaximum(1.0);
+      histDxyVsDE[0]->Draw("E");
+      histDxyVsDE[1]->SetLineColor(kRed);
+      histDxyVsDE[1]->Draw("E same");
+      c.SaveAs(pdfFileName.c_str());
+
+      // set DE names in X axis
+      for (int xbin = 1; xbin <= histDxyVsDE[0]->GetXaxis()->GetNbins(); xbin++) {
+        int deId = getDEFromIndex(xbin - 1);
+        histDxyVsDE[0]->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
+      }
+
+      std::string histTitle = histDxyVsDE[0]->GetTitle();
+      for (int chIndex = 0; chIndex < 10; chIndex++) {
+        int deMin = getChamberOffset(chIndex);
+        int deMax = deMin + getNumDEinChamber(chIndex);
+        histDxyVsDE[0]->GetXaxis()->SetRangeUser(deMin, deMax);
+        histDxyVsDE[0]->SetTitle((histTitle + "(CH" + std::to_string(chIndex+1) + ")").c_str());
+        histDxyVsDE[0]->SetMinimum(-5.0);
+        histDxyVsDE[0]->SetMaximum(5.0);
+        c.SaveAs(pdfFileName.c_str());
+
+        histDxyVsDE[0]->SetMinimum(-1.0);
+        histDxyVsDE[0]->SetMaximum(1.0);
+        c.SaveAs(pdfFileName.c_str());
+
+        histDxyVsDE[0]->SetMinimum(-0.5);
+        histDxyVsDE[0]->SetMaximum(0.5);
+        c.SaveAs(pdfFileName.c_str());
+
+        if (chIndex < 4) {
+          histDxyVsDE[0]->SetMinimum(-0.2);
+          histDxyVsDE[0]->SetMaximum(0.2);
+          c.SaveAs(pdfFileName.c_str());
+        }
+      }
     }
+
+    //   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
+    //hn->GetAxis(1)->SetRange(1, hn->GetAxis(1)->GetNbins());
+    for (const auto& group : deGroups) {
+      for (int xy = 0; xy < 2; xy++) {
+        hDEResiduals[xy].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
+        // loop over charge sign
+        for (int charge = 0; charge < 2; charge++) {
+          hDE[xy]->GetAxis(signAxisId)->SetRange(charge + 1, charge + 1);
+          // loop over DE ids
+          for (auto deId : std::get<3>(group)) {
+            auto deIndex = getDEindex(deId);
+            hDE[xy]->GetAxis(deAxisId)->SetRange(deIndex + 1, deIndex + 1);
+            TH1* proj = hDE[xy]->Projection(residualAxisId);
+            if (hDEResiduals[xy].back()[charge]) {
+              hDEResiduals[xy].back()[charge]->Add(proj);
+              delete proj;
+            } else {
+              proj->SetTitle(std::format("{} - #Deltax, {}", std::get<0>(group), (charge == 0 ? "positive" : "negative")).c_str());
+              hDEResiduals[xy].back()[charge] = proj;
+            }
+          }
+        }
+      }
+
+      // loop over charge sign
+      double averageCorrectionX = 0;
+      for (int charge = 0; charge < 2; charge++) {
+        auto mean = PlotDXY(hDEResiduals[0].back()[charge], c5, "residuals_groups.pdf");
+        corrections_x << std::format("{} ({}): dx = {:0.3f} +/- {:0.3f}",
+            std::get<0>(group), (charge == 0 ? "positive" : "negative"), mean.first, mean.second) << std::endl;
+
+        averageCorrectionX += -mean.first;
+      }
+      averageCorrectionX /= 2;
+
+      // loop over charge sign
+      double averageCorrectionY = 0;
+      for (int charge = 0; charge < 2; charge++) {
+        auto mean = PlotDXY(hDEResiduals[1].back()[charge], c5, "residuals_groups.pdf");
+        corrections_y << std::format("{} ({}): dx = {:0.3f} +/- {:0.3f}",
+            std::get<0>(group), (charge == 0 ? "positive" : "negative"), mean.first, mean.second) << std::endl;
+
+        averageCorrectionY += -mean.first;
+      }
+      averageCorrectionY /= 2;
+
+      // loop over DE ids
+      for (auto deId : std::get<3>(group)) {
+        correctionsJson << "  \"" << deId << "\": {" << std::endl;
+        correctionsJson << "    \"x\": " << averageCorrectionX << ","
+            << " \"y\": " << averageCorrectionY << ","
+            << " \"z\": 0, \"yaw\": 0, \"pitch\": 0, \"roll\": 0" << std::endl;
+        correctionsJson << "  }," << std::endl;
+      }
+    }
+    correctionsJson << "  \"last\": {}" << std::endl;
+    correctionsJson << "}" << std::endl;
   }
 
+  /*
   // -----------------
   // Y direction
 
   std::ofstream corrections_y("corrections-y.txt");
 
   hn = GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de").c_str());
-  TH1* histDyVsDE[2] = {nullptr, nullptr};
-  for (int k = 0; k < hn->GetAxis(2)->GetNbins(); k++) {
-    hn->GetAxis(2)->SetRange(k + 1, k + 1);
-    hn->GetAxis(0)->SetRange(1, hn->GetAxis(0)->GetNbins());
-    histDyVsDE[k] = hn->Projection(0);
-    histDyVsDE[k]->Reset();
-    histDyVsDE[k]->SetName(std::format("dy_vs_de_{}", (k == 0 ? "positive" : "negative")).c_str());
-    histDyVsDE[k]->SetTitle("#Deltay vs. DE");
-    for (int i = 0; i < hn->GetAxis(0)->GetNbins(); i++) {
-      hn->GetAxis(0)->SetRange(i + 1, i + 1);
+  if (hn) {
+    int residualAxisId = 0;
+    int deAxisId = 1;
+    int quadrantAxisId = 2;
+    int signAxisId = 3;
+    int pAxisId = 4;
 
-      auto* proj = hn->Projection(3);
-      proj->SetName(std::format("dy_vs_de_{}_{}", i+1, (k == 0 ? "positive" : "negative")).c_str());
-      proj->SetTitle(std::format("#Deltay, DE{} {}", i, (k == 0 ? "positive" : "negative")).c_str());
-      auto mean = PlotDXY(proj, c3, "residuals_DE.pdf");
-      histDyVsDE[k]->SetBinContent(i + 1, mean.first);
-      histDyVsDE[k]->SetBinError(i + 1, mean.second);
+    if (hn->GetNdimensions() == 4) {
+      residualAxisId = 3;
+      deAxisId = 0;
+      quadrantAxisId = 1;
+      signAxisId = 2;
+      pAxisId = -1;
     }
-  }
-  c.Clear();
-  c.cd();
-  histDyVsDE[0]->SetLineColor(kBlue);
-  histDyVsDE[0]->SetMinimum(-1.0);
-  histDyVsDE[0]->SetMaximum(1.0);
-  histDyVsDE[0]->Draw("E");
-  histDyVsDE[1]->SetLineColor(kRed);
-  histDyVsDE[1]->Draw("E same");
-  c.SaveAs(pdfFileName.c_str());
 
-  // set DE names in X axis
-  for (int xbin = 1; xbin <= histDyVsDE[0]->GetXaxis()->GetNbins(); xbin++) {
-    int deId = getDEFromIndex(xbin - 1);
-    histDyVsDE[0]->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
-  }
+    hn->GetAxis(0)->SetRange(0, -1);
+    hn->GetAxis(1)->SetRange(0, -1);
+    hn->GetAxis(2)->SetRange(0, -1);
+    hn->GetAxis(3)->SetRange(0, -1);
+    if (pAxisId >= 0) {
+      // p >= 20 GeV/c
+      hn->GetAxis(pAxisId)->SetRange(5, -1);
+    }
 
-  histTitle = histDyVsDE[0]->GetTitle();
-  for (int chIndex = 0; chIndex < 10; chIndex++) {
-    int deMin = getChamberOffset(chIndex);
-    int deMax = deMin + getNumDEinChamber(chIndex);
-    histDyVsDE[0]->GetXaxis()->SetRangeUser(deMin, deMax);
-    histDyVsDE[0]->SetTitle((histTitle + "(CH" + std::to_string(chIndex+1) + ")").c_str());
-    histDyVsDE[0]->SetMinimum(-5.0);
-    histDyVsDE[0]->SetMaximum(5.0);
-    c.SaveAs(pdfFileName.c_str());
+    TH1* histDyVsDE[2] = {nullptr, nullptr};
+    for (int k = 0; k < hn->GetAxis(signAxisId)->GetNbins(); k++) {
+      //hn->GetAxis(2)->SetRange(k + 1, k + 1);
+      //hn->GetAxis(0)->SetRange(1, hn->GetAxis(0)->GetNbins());
+      histDyVsDE[k] = hn->Projection(deAxisId);
+      histDyVsDE[k]->Reset();
+      histDyVsDE[k]->SetName(std::format("dy_vs_de_{}", (k == 0 ? "positive" : "negative")).c_str());
+      histDyVsDE[k]->SetTitle("#Deltay vs. DE");
+    }
+    for (int i = 0; i < hn->GetAxis(deAxisId)->GetNbins(); i++) {
+      hn->GetAxis(deAxisId)->SetRange(i + 1, i + 1);
+      for (int k = 0; k < hn->GetAxis(signAxisId)->GetNbins(); k++) {
+        hn->GetAxis(signAxisId)->SetRange(k + 1, k + 1);
 
+        auto* proj = hn->Projection(residualAxisId);
+        proj->SetName(std::format("dy_vs_de_{}_{}", i+1, (k == 0 ? "positive" : "negative")).c_str());
+        proj->SetTitle(std::format("#Deltay, DE{} {}", getDEFromIndex(i), (k == 0 ? "positive" : "negative")).c_str());
+        auto mean = PlotDXY(proj, c3, "residuals_DE.pdf");
+        histDyVsDE[k]->SetBinContent(i + 1, mean.first);
+        histDyVsDE[k]->SetBinError(i + 1, mean.second);
+      }
+    }
+    c.Clear();
+    c.cd();
+    histDyVsDE[0]->SetLineColor(kBlue);
     histDyVsDE[0]->SetMinimum(-1.0);
     histDyVsDE[0]->SetMaximum(1.0);
+    histDyVsDE[0]->Draw("E");
+    histDyVsDE[1]->SetLineColor(kRed);
+    histDyVsDE[1]->Draw("E same");
     c.SaveAs(pdfFileName.c_str());
 
-    histDyVsDE[0]->SetMinimum(-0.5);
-    histDyVsDE[0]->SetMaximum(0.5);
-    c.SaveAs(pdfFileName.c_str());
+    // set DE names in X axis
+    for (int xbin = 1; xbin <= histDyVsDE[0]->GetXaxis()->GetNbins(); xbin++) {
+      int deId = getDEFromIndex(xbin - 1);
+      histDyVsDE[0]->GetXaxis()->SetBinLabel(xbin, TString::Format("DE%d", deId));
+    }
 
-    if (chIndex < 4) {
-      histDyVsDE[0]->SetMinimum(-0.1);
-      histDyVsDE[0]->SetMaximum(0.1);
+    std::string histTitle = histDyVsDE[0]->GetTitle();
+    for (int chIndex = 0; chIndex < 10; chIndex++) {
+      int deMin = getChamberOffset(chIndex);
+      int deMax = deMin + getNumDEinChamber(chIndex);
+      histDyVsDE[0]->GetXaxis()->SetRangeUser(deMin, deMax);
+      histDyVsDE[0]->SetTitle((histTitle + "(CH" + std::to_string(chIndex+1) + ")").c_str());
+      histDyVsDE[0]->SetMinimum(-5.0);
+      histDyVsDE[0]->SetMaximum(5.0);
       c.SaveAs(pdfFileName.c_str());
-    }
-  }
 
-  //   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
-  hn->GetAxis(1)->SetRange(1, hn->GetAxis(1)->GetNbins());
-  for (const auto& group : deGroups) {
-    hDEResiduals[1].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
-    // loop over charge sign
-    for (int charge = 0; charge < 2; charge++) {
-      hn->GetAxis(2)->SetRange(charge + 1, charge + 1);
-      // loop over DE ids
-      for (auto deId : group.second) {
-        auto deIndex = getDEindex(deId);
-        hn->GetAxis(0)->SetRange(deIndex + 1, deIndex + 1);
-        TH1* proj = hn->Projection(3);
-        if (hDEResiduals[1].back()[charge]) {
-          hDEResiduals[1].back()[charge]->Add(proj);
-          delete proj;
-        } else {
-          proj->SetTitle(std::format("{} - #Deltay, {}", group.first, (charge == 0 ? "positive" : "negative")).c_str());
-          hDEResiduals[1].back()[charge] = proj;
-        }
+      histDyVsDE[0]->SetMinimum(-1.0);
+      histDyVsDE[0]->SetMaximum(1.0);
+      c.SaveAs(pdfFileName.c_str());
+
+      histDyVsDE[0]->SetMinimum(-0.5);
+      histDyVsDE[0]->SetMaximum(0.5);
+      c.SaveAs(pdfFileName.c_str());
+
+      if (chIndex < 4) {
+        histDyVsDE[0]->SetMinimum(-0.2);
+        histDyVsDE[0]->SetMaximum(0.2);
+        c.SaveAs(pdfFileName.c_str());
       }
-      auto mean = PlotDXY(hDEResiduals[1].back()[charge], c5, "residuals_groups.pdf");
-      corrections_y << std::format("{} ({}): dy = {:0.3f} +/- {:0.3f}",
-          group.first, (charge == 0 ? "positive" : "negative"), mean.first, mean.second) << std::endl;
+    }
+
+    //   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
+    //hn->GetAxis(1)->SetRange(1, hn->GetAxis(1)->GetNbins());
+    for (const auto& group : deGroups) {
+      hDEResiduals[1].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
+      // loop over charge sign
+      for (int charge = 0; charge < 2; charge++) {
+        hn->GetAxis(signAxisId)->SetRange(charge + 1, charge + 1);
+        // loop over DE ids
+        for (auto deId : group.second) {
+          auto deIndex = getDEindex(deId);
+          hn->GetAxis(deAxisId)->SetRange(deIndex + 1, deIndex + 1);
+          TH1* proj = hn->Projection(residualAxisId);
+          if (hDEResiduals[1].back()[charge]) {
+            hDEResiduals[1].back()[charge]->Add(proj);
+            delete proj;
+          } else {
+            proj->SetTitle(std::format("{} - #Deltay, {}", group.first, (charge == 0 ? "positive" : "negative")).c_str());
+            hDEResiduals[1].back()[charge] = proj;
+          }
+        }
+        auto mean = PlotDXY(hDEResiduals[1].back()[charge], c5, "residuals_groups.pdf");
+        corrections_y << std::format("{} ({}): dy = {:0.3f} +/- {:0.3f}",
+            group.first, (charge == 0 ? "positive" : "negative"), mean.first, mean.second) << std::endl;
+      }
     }
   }
+  */
 
 
   c.Clear();
   c.SaveAs((pdfFileName + ")").c_str());
-
-  c3.Clear();
-  c2.SaveAs("residuals_CH.pdf)");
 
   c3.Clear();
   c3.SaveAs("residuals_DE.pdf)");
