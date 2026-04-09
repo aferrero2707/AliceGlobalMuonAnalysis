@@ -310,53 +310,78 @@ void PlotTracks(std::string histName, int numberOfClusters, TCanvas& c)
   }
 }
 
-
-void PlotMftLayerEfficiencies(TCanvas& c)
+void PlotSlopes(std::string histName, int numberOfClusters, TCanvas& c)
 {
-  if (!GetTH2(fAnalysisResults, "muon-global-alignment/DCA/MFT/mftTrackEffNum_0")) return;
+  std::string fullHistName = std::string("muon-global-alignment/") + histName;
+  THnSparse* histogramFull = GetTHnSparse(fAnalysisResults, fullHistName);
+  std::cout << fullHistName << " -> " << histogramFull << std::endl;
+  if (!histogramFull) return;
 
-  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
-  c.Clear();
-  title->AddText("MFT layer efficiencies");
-  title->Draw();
+  // slopes pattern axis assignments:
+  // 0 -> x slope
+  // 1 -> y slope
+  // 2 -> track x
+  // 3 -> track y
+  // 4 -> nClusters
+  // 5 -> MFT track type
+
+  int binClus = numberOfClusters - 4;
+
+
+  c.cd();
+  //TH2* trackxy = histogramFull->Projection(3, 2);
+  //if (!trackxy) return false;
+  //trackxy->Draw("col");
+  //c.SaveAs(pdfFileName.c_str());
+
+  histogramFull->GetAxis(4)->SetRange(binClus, binClus);
+  histogramFull->GetAxis(5)->SetRange(1, 1);
+
+  TH2* trackxy = histogramFull->Projection(3, 2);
+  if (!trackxy) return;
+  trackxy->SetTitle(std::format("Track slope with nClus={}", numberOfClusters).c_str());
+  trackxy->Draw("col");
   c.SaveAs(pdfFileName.c_str());
 
-  c.Clear();
-  for (int i = 0; i < 10; i++) {
-    std::string fullHistName = std::string("muon-global-alignment/DCA/MFT/mftTrackEffNum_") + std::to_string(i);
-    TH2* histogramNum = GetTH2(fAnalysisResults, fullHistName);
-    std::cout << fullHistName << " -> " << histogramNum << std::endl;
-    if (!histogramNum) continue;
+  //return;
 
-    fullHistName = std::string("muon-global-alignment/DCA/MFT/mftTrackEffDen_") + std::to_string(i);
-    TH2* histogramDen = GetTH2(fAnalysisResults, fullHistName);
-    std::cout << fullHistName << " -> " << histogramDen << std::endl;
-    if (!histogramDen) continue;
+  //trackxy->Reset();
 
-    histogramNum->Divide(histogramDen);
-    histogramNum->SetMinimum(0);
-    histogramNum->SetMaximum(1);
+  for (int ybin = 1; ybin <= histogramFull->GetAxis(3)->GetNbins(); ybin++) {
+    //if (ybin != 18) continue;
+    histogramFull->GetAxis(3)->SetRange(ybin, ybin);
+    std::cout << std::format("ybin={}", ybin) << std::endl;
+    for (int xbin = 1; xbin <= histogramFull->GetAxis(2)->GetNbins(); xbin++) {
+      //if (xbin != 15) continue;
+      histogramFull->GetAxis(2)->SetRange(xbin, xbin);
+      std::cout << std::format("  xbin={}", xbin) << std::endl;
+      TH1* slopes = histogramFull->Projection(0);
+      if (!slopes) continue;
+      slopes->SetName(TString::Format("%s_%d_%d_%d", slopes->GetName(), numberOfClusters, xbin, ybin));
+      if (slopes->GetEntries() < 1) continue;
+      std::cout << std::format("    slope={}", slopes->GetMean()) << std::endl;
 
-    histogramNum->Draw("col");
-    c.SaveAs(pdfFileName.c_str());
+      trackxy->SetBinContent(xbin, ybin, slopes->GetMean());
+    }
   }
+
+  trackxy->SetMinimum(-0.3);
+  trackxy->SetMaximum(0.3);
+  trackxy->Draw("col1");
+  c.SaveAs(pdfFileName.c_str());
 }
 
-
-bool ProcessDCAvsZ(std::string coordinate, int numberOfClusters, TCanvas& c, TCanvas& c2, bool printFits = false)
+bool ProcessDCAvsZ(std::string histName, std::string layersHistName, std::string coordinate, int numberOfClusters, TCanvas& c, TCanvas& c2, bool printFits = false)
 {
-  std::string fullHistName = std::string("muon-global-alignment/DCA/MFT/DCA_") + coordinate;
+  std::string fullHistName = std::string("muon-global-alignment/") + histName;
   THnSparse* histogramFull = GetTHnSparse(fAnalysisResults, fullHistName);
   std::cout << fullHistName << " -> " << histogramFull << std::endl;
   if (!histogramFull) return false;
 
-  fullHistName = "muon-global-alignment/DCA/MFT/layers";
+  fullHistName = std::string("muon-global-alignment/") + layersHistName;
   THnSparse* histogramLayers = GetTHnSparse(fAnalysisResults, fullHistName);
   std::cout << fullHistName << " -> " << histogramLayers << std::endl;
-
-  fullHistName = std::string("muon-global-alignment/DCA/MFT/slope_") + coordinate;
-  THnSparse* histogramSlope = GetTHnSparse(fAnalysisResults, fullHistName);
-  std::cout << fullHistName << " -> " << histogramSlope << std::endl;
+  if (!histogramLayers) return false;
 
   // DCA axis assignments:
   // 0 -> DCA
@@ -368,13 +393,6 @@ bool ProcessDCAvsZ(std::string coordinate, int numberOfClusters, TCanvas& c, TCa
 
   // Layers pattern axis assignments:
   // 0 -> layers pattern
-  // 1 -> track x
-  // 2 -> track y
-  // 3 -> nClusters
-  // 4 -> MFT track type
-
-  // Track slope axis assignments:
-  // 0 -> slope
   // 1 -> track x
   // 2 -> track y
   // 3 -> nClusters
@@ -423,13 +441,12 @@ bool ProcessDCAvsZ(std::string coordinate, int numberOfClusters, TCanvas& c, TCa
   c2.cd();
   for (int ybin = 1; ybin <= histogramFull->GetAxis(3)->GetNbins(); ybin++) {
     //if (ybin != 15) continue;
-    //if (ybin < 11) continue;
     histogramFull->GetAxis(3)->SetRange(ybin, ybin);
+    histogramLayers->GetAxis(2)->SetRange(ybin, ybin);
     for (int xbin = 1; xbin <= histogramFull->GetAxis(2)->GetNbins(); xbin++) {
       //if (xbin != 20) continue;
-      //if (xbin < 14) continue;
-      //if (xbin > 17) continue;
       histogramFull->GetAxis(2)->SetRange(xbin, xbin);
+      histogramLayers->GetAxis(1)->SetRange(xbin, xbin);
       TH2* dcaVsZ = histogramFull->Projection(0, 1);
       if (!dcaVsZ) continue;
       dcaVsZ->SetName(TString::Format("%s_%d_%d_%d", dcaVsZ->GetName(), numberOfClusters, xbin, ybin));
@@ -442,26 +459,6 @@ bool ProcessDCAvsZ(std::string coordinate, int numberOfClusters, TCanvas& c, TCa
       c2.SaveAs((dcaFileName+"(").c_str());
 
       auto linfit = PlotDCAProjection(dcaVsZ, -0.1, 0.1, 1, c2, printFits);
-      c2.SaveAs(dcaFileName.c_str());
-
-      dcaVsZ->GetYaxis()->SetRangeUser(-0.1, 0.1);
-      dcaVsZ->Draw("col");
-      if (!std::isnan(std::get<0>(linfit)) && !std::isnan(std::get<2>(linfit))) {
-        TLine* line = new TLine(dcaVsZ->GetXaxis()->GetXmin(),
-                                dcaVsZ->GetXaxis()->GetXmin() * std::get<2>(linfit) + std::get<0>(linfit),
-                                dcaVsZ->GetXaxis()->GetXmax(),
-                                dcaVsZ->GetXaxis()->GetXmax() * std::get<2>(linfit) + std::get<0>(linfit));
-        line->SetLineColor(kRed);
-        line->SetLineStyle(kDashed);
-        line->SetLineWidth(2);
-        line->Draw();
-        //std::cout << std::format("TOTO bin {}-{}: {:0.2f} +/- {:0.2f}", ybin, xbin, std::get<0>(linfit), std::get<1>(linfit)) << std::endl;
-        trackxy->SetBinContent(xbin, ybin, std::get<0>(linfit));
-        trackxy->SetBinError(xbin, ybin, 0.1);
-
-        tracksxsy->SetBinContent(xbin, ybin, std::get<2>(linfit));
-        tracksxsy->SetBinError(xbin, ybin, 0.1);
-      }
       c2.SaveAs(dcaFileName.c_str());
 
       TH1* proj = dcaVsZ->ProjectionY(std::format("{}_py", dcaVsZ->GetName()).c_str(),
@@ -510,6 +507,26 @@ bool ProcessDCAvsZ(std::string coordinate, int numberOfClusters, TCanvas& c, TCa
       }
       c2.SaveAs(dcaFileName.c_str());
 
+      dcaVsZ->GetYaxis()->SetRangeUser(-0.1, 0.1);
+      dcaVsZ->Draw("col");
+      if (!std::isnan(std::get<0>(linfit)) && !std::isnan(std::get<2>(linfit))) {
+        TLine* line = new TLine(dcaVsZ->GetXaxis()->GetXmin(),
+                                dcaVsZ->GetXaxis()->GetXmin() * std::get<2>(linfit) + std::get<0>(linfit),
+                                dcaVsZ->GetXaxis()->GetXmax(),
+                                dcaVsZ->GetXaxis()->GetXmax() * std::get<2>(linfit) + std::get<0>(linfit));
+        line->SetLineColor(kRed);
+        line->SetLineStyle(kDashed);
+        line->SetLineWidth(2);
+        line->Draw();
+        //std::cout << std::format("TOTO bin {}-{}: {:0.2f} +/- {:0.2f}", ybin, xbin, std::get<0>(linfit), std::get<1>(linfit)) << std::endl;
+        trackxy->SetBinContent(xbin, ybin, std::get<0>(linfit));
+        trackxy->SetBinError(xbin, ybin, 0.1);
+
+        tracksxsy->SetBinContent(xbin, ybin, std::get<2>(linfit));
+        tracksxsy->SetBinError(xbin, ybin, 0.1);
+      }
+      c2.SaveAs(dcaFileName.c_str());
+
       /*if (!std::isnan(std::get<0>(linfit)) && !std::isnan(std::get<2>(linfit))) {
         TH2F h2("h2", "h2", 100, -80, 10, 100, -0.1, 0.1);
         h2.Draw("col");
@@ -524,57 +541,43 @@ bool ProcessDCAvsZ(std::string coordinate, int numberOfClusters, TCanvas& c, TCa
         c2.SaveAs(dcaFileName.c_str());
       }*/
 
-      if (histogramLayers) {
-        histogramLayers->GetAxis(1)->SetRange(xbin, xbin);
-        histogramLayers->GetAxis(2)->SetRange(ybin, ybin);
-        TH1* layers = histogramLayers->Projection(0);
-        if (layers) {
-          layers->Draw();
-          c2.SaveAs(dcaFileName.c_str());
+      TH1* layers = histogramLayers->Projection(0);
+      if (layers) {
+        layers->Draw();
+        c2.SaveAs(dcaFileName.c_str());
 
-          TH1F h("h", "Fired layers", 10, 0, 10);
-          TH2F h2("h2", "Fired layers correlation", 10, 0, 10, 10, 0, 10);
-          double integral = 0;
-          for (int i = 1; i <= layers->GetXaxis()->GetNbins(); i++) {
-            auto entries = layers->GetBinContent(i);
-            integral += entries;
-            auto firedLayers = GetFiredLayers(i - 1);
-            for (int bit = 0; bit < 10; bit++) {
-              if (firedLayers[bit]) {
-                h.Fill(bit, entries);
-                for (int bit2 = 0; bit2 < 10; bit2++) {
-                  if (firedLayers[bit2]) {
-                    h2.Fill(bit, bit2, entries);
-                  }
+        TH1F h("h", "Fired layers", 10, 0, 10);
+        TH2F h2("h2", "Fired layers correlation", 10, 0, 10, 10, 0, 10);
+        double integral = 0;
+        for (int i = 1; i <= layers->GetXaxis()->GetNbins(); i++) {
+          auto entries = layers->GetBinContent(i);
+          integral += entries;
+          auto firedLayers = GetFiredLayers(i - 1);
+          for (int bit = 0; bit < 10; bit++) {
+            if (firedLayers[bit]) {
+              h.Fill(bit, entries);
+              for (int bit2 = 0; bit2 < 10; bit2++) {
+                if (firedLayers[bit2]) {
+                  h2.Fill(bit, bit2, entries);
                 }
               }
             }
           }
-          if (integral > 0) {
-            h.Scale(1.f / integral);
-            h2.Scale(1.f / integral);
-          }
-
-          h.SetMinimum(0);
-          h.SetMaximum(1);
-          h.Draw("HIST");
-          c2.SaveAs(dcaFileName.c_str());
-
-          h2.SetMinimum(0);
-          h2.SetMaximum(1);
-          h2.Draw("colz");
-          c2.SaveAs(dcaFileName.c_str());
         }
-      }
-
-      if (histogramSlope) {
-        histogramSlope->GetAxis(1)->SetRange(xbin, xbin);
-        histogramSlope->GetAxis(2)->SetRange(ybin, ybin);
-        TH1* slope = histogramSlope->Projection(0);
-        if (slope) {
-          slope->Draw();
-          c2.SaveAs(dcaFileName.c_str());
+        if (integral > 0) {
+          h.Scale(1.f / integral);
+          h2.Scale(1.f / integral);
         }
+
+        h.SetMinimum(0);
+        h.SetMaximum(1);
+        h.Draw("HIST");
+        c2.SaveAs(dcaFileName.c_str());
+
+        h2.SetMinimum(0);
+        h2.SetMaximum(1);
+        h2.Draw("colz");
+        c2.SaveAs(dcaFileName.c_str());
       }
 
       c2.Clear();
@@ -627,7 +630,7 @@ bool ProcessDCAvsZ(std::string coordinate, int numberOfClusters, TCanvas& c, TCa
   return true;
 }
 
-void muonGlobalAlignmentMftDCA(const char* _rootFileName = "AnalysisResults.root", const char* _pdfFileName = "mftDCA.pdf")
+void muonGlobalAlignmentMftSlopes(const char* _rootFileName = "AnalysisResults.root", const char* _pdfFileName = "mftDCA.pdf")
 {
   //fAnalysisResults = new TFile("AnalysisResults.root");
   //fAnalysisResults = new TFile("AnalysisResults/AnalysisResultsFull.root");
@@ -644,15 +647,9 @@ void muonGlobalAlignmentMftDCA(const char* _rootFileName = "AnalysisResults.root
   TCanvas c2("c2", "c2", 1200, 800);
 
   c.cd();
-
-  PlotMftLayerEfficiencies(c);
-
   TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
-
-  //ProcessDCAvsZ("DCA/MFT/DCA_x", "DCA/MFT/layers", "x", 5, 10, c, c2, false);
-  //ProcessDCAvsZ("DCA/MFT/DCA_y", "DCA/MFT/layers", "y", 5, 10, c, c2, false);
   //for (int nclus = 5; nclus <= 10; nclus++) {
-  for (int nclus = 6; nclus <= 5; nclus++) {
+  for (int nclus = 7; nclus <= 7; nclus++) {
     c.Clear();
     title->Clear();
     title->AddText(TString::Format("# of clusters = %d", nclus));
@@ -660,8 +657,9 @@ void muonGlobalAlignmentMftDCA(const char* _rootFileName = "AnalysisResults.root
     c.SaveAs(pdfFileName.c_str());
 
     PlotTracks("DCA/MFT/layers", nclus, c);
-    ProcessDCAvsZ("x", nclus, c, c2, false);
-    ProcessDCAvsZ("y", nclus, c, c2, false);
+    PlotSlopes("DCA/MFT/slopes", nclus, c);
+    //ProcessDCAvsZ("DCA/MFT/DCA_x", "DCA/MFT/layers", "x", nclus, c, c2, false);
+    //ProcessDCAvsZ("DCA/MFT/DCA_y", "DCA/MFT/layers", "y", nclus, c, c2, false);
   }
 
   c.Clear();
