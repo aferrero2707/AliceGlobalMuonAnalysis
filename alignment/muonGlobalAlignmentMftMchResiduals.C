@@ -2961,9 +2961,9 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
     auto chamberIndex = getChamberIndex(deId);
     auto cz = chamberZ[chamberIndex];
     double maxCorrZ = -1.0;
-    //double corrDampingFactor = 0.5;
-    double corrDampingFactor = 0.0;
-    double corrZ = (chamberIndex > 3) ? maxCorrZ * (cz - 500.f) / (chamberZ[9] - 500.f) : 0.f;
+    double corrDampingFactor = 0.5;
+    //double corrDampingFactor = 0.0;
+    double corrZ = 0; //(chamberIndex > 3) ? maxCorrZ * (cz - 500.f) / (chamberZ[9] - 500.f) : 0.f;
     if (hCorrectionsX && hCorrectionsY) {
       std::cout << std::format("Shifts for DE{}:\n  X: {:+0.3f}\n  Y: {:+0.3f}",
           deId, hCorrectionsX->GetBinContent(deIndex + 1), hCorrectionsY->GetBinContent(deIndex + 1)) << std::endl;
