@@ -724,8 +724,57 @@ void PlotDCAMCHvsMomentum(THnSparse* hnx, THnSparse* hny, TCanvas& c)
     mg->SetMinimum(-1);
     mg->SetMaximum(1);
     legend->Draw();
-
     c.SaveAs(pdfFileName.c_str());
+
+    mg->SetMinimum(-0.5);
+    mg->SetMaximum(0.5);
+    c.SaveAs(pdfFileName.c_str());
+  }
+}
+
+double GetEstimatedSigma(TH1* h)
+{
+  double valuePeak = h->GetMaximum();
+  if (valuePeak < 5) {
+    return 0;
+  }
+
+  int binPeak = h->GetMaximumBin();
+  double xPeak = h->GetXaxis()->GetBinCenter(binPeak);
+
+  //std::cout << std::format("xPeak: {:0.3f}  value: {}", xPeak, valuePeak) << std::endl;
+
+  double xLeft = xPeak;
+  // search half-height bin on the left
+  for (int bin = binPeak - 1; bin >= 1; bin--) {
+    double x = h->GetXaxis()->GetBinCenter(bin);
+    double value = h->GetBinContent(bin);
+    if (value < (0.5 * valuePeak)) {
+      xLeft = x;
+      break;
+    }
+  }
+
+  double xRight = xPeak;
+  // search half-height bin on the right
+  for (int bin = binPeak + 1; bin <= h->GetXaxis()->GetNbins(); bin++) {
+    double x = h->GetXaxis()->GetBinCenter(bin);
+    double value = h->GetBinContent(bin);
+    if (value < (0.5 * valuePeak)) {
+      xRight = x;
+      break;
+    }
+  }
+
+  if (xLeft == xPeak) {
+    return 1.2 * (xRight - xPeak);
+  } else if (xRight == xPeak) {
+    return 1.2 * (xPeak - xLeft);
+  } else {
+    double dLeft = xPeak - xLeft;
+    double dRight = xRight - xPeak;
+
+    return 0.5 * 1.2 * (dLeft + dRight);
   }
 }
 
@@ -737,23 +786,35 @@ std::pair<double, double> PlotDXY(TH1* proj, TCanvas& c, std::string pdfName = "
   proj->SetLineColor(kRed);
   proj->Draw("E");
 
-  TF1 fgaus("fgaus", "gausn(0)+pol2(3)");
   int valuePeak = proj->GetMaximum();
-  //if (valuePeak < 10) {
-  //  return {nan(""), nan("")};
-  //}
+  if (valuePeak < 10) {
+    return {nan(""), nan("")};
+  }
+
   int binPeak = proj->GetMaximumBin();
   double xPeak = proj->GetXaxis()->GetBinCenter(binPeak);
+
+  double sigma0 = GetEstimatedSigma(proj);
+
+  TF1 fgaus("fgaus", "gausn(0)+pol2(3)");
   fgaus.SetNpx(1000);
   fgaus.SetLineColor(kBlack);
   fgaus.SetParameter(0, valuePeak / 10);
-  fgaus.SetParLimits(0, 0, valuePeak * 10);
-  fgaus.SetParameter(1, xPeak);
-  fgaus.SetParameter(2, 1);
-  fgaus.SetParLimits(2, 0, 10);
-  fgaus.SetParameter(3, 0);
-  fgaus.SetParameter(4, 0);
-  fgaus.SetParameter(5, 0);
+  //fgaus.SetParLimits(0, 0, valuePeak * 10);
+  fgaus.FixParameter(1, xPeak);
+  fgaus.SetParameter(2, sigma0);
+  //fgaus.SetParLimits(2, 0, 10);
+  fgaus.FixParameter(3, 0);
+  fgaus.FixParameter(4, 0);
+  fgaus.FixParameter(5, 0);
+  //proj->Fit("fgaus", "BQN");
+  //fgaus.ReleaseParameter(2);
+  proj->Fit("fgaus", "BQN");
+  fgaus.ReleaseParameter(1);
+  proj->Fit("fgaus", "BQN");
+  fgaus.ReleaseParameter(3);
+  fgaus.ReleaseParameter(4);
+  fgaus.ReleaseParameter(5);
   proj->Fit("fgaus", "BQN");
 
 #ifdef SIMPLE_FIT
@@ -764,7 +825,7 @@ std::pair<double, double> PlotDXY(TH1* proj, TCanvas& c, std::string pdfName = "
   fgaus2.SetParameter(0, fgaus.GetParameter(0));
   fgaus2.SetParameter(1, xPeak);
   fgaus2.SetParameter(2, fgaus.GetParameter(2));
-  proj->Fit("fgaus2", "BRQ");
+  proj->Fit("fgaus2", "BRQ+");
 #else
   TF1 fgaus2("fgaus2", VariableWidthGaussian, proj->GetXaxis()->GetXmin(), proj->GetXaxis()->GetXmax(), 10);
   fgaus2.SetNpx(1000);
@@ -808,8 +869,113 @@ std::pair<double, double> PlotDXY(TH1* proj, TCanvas& c, std::string pdfName = "
   //return {fcb.GetParameter(4), fgaus.GetParError(4)};
 }
 
+std::pair<double, double> PlotDXYSimple(TH1* proj, TCanvas& c, std::string pdfName = "", bool printFits = false)
+{
+  c.Clear();
+  proj->SetLineColor(kRed);
+  proj->Draw("E");
+
+  int valuePeak = proj->GetMaximum();
+  if (valuePeak < 10) {
+    return {nan(""), nan("")};
+  }
+
+  int binPeak = proj->GetMaximumBin();
+  double xPeak = proj->GetXaxis()->GetBinCenter(binPeak);
+
+  double sigma0 = GetEstimatedSigma(proj);
+  if (printFits) {
+    std::cout << std::format("Estimated sigma: {:0.3f}", sigma0) << std::endl;
+  }
+
+  /*TF1 fgaus("fgaus", "gausn(0)+pol2(3)");
+  fgaus.SetNpx(1000);
+  fgaus.SetLineColor(kBlack);
+  fgaus.SetParameter(0, valuePeak / 10);
+  //fgaus.SetParLimits(0, 0, valuePeak * 10);
+  fgaus.FixParameter(1, xPeak);
+  fgaus.FixParameter(2, sigma0);
+  //fgaus.SetParLimits(2, 0, 10);
+  fgaus.FixParameter(3, 0);
+  fgaus.FixParameter(4, 0);
+  fgaus.FixParameter(5, 0);
+  proj->Fit("fgaus", "BQN");
+  fgaus.ReleaseParameter(2);
+  proj->Fit("fgaus", "BQN");
+  fgaus.ReleaseParameter(1);
+  proj->Fit("fgaus", "BQN");
+  fgaus.ReleaseParameter(3);
+  fgaus.ReleaseParameter(4);
+  fgaus.ReleaseParameter(5);
+  if (printFits)
+    proj->Fit("fgaus", "B");
+  else
+    proj->Fit("fgaus", "BQ");*/
+
+  //xPeak = fgaus.GetParameter(1);
+  //TF1 fgaus2("fgaus2", "gausn(0)", xPeak - fgaus.GetParameter(2), xPeak + fgaus.GetParameter(2));
+  TF1 fgaus2("fgaus2", "gausn(0)", xPeak - sigma0 * 1., xPeak + sigma0 * 1.);
+  fgaus2.SetNpx(1000);
+  fgaus2.SetLineColor(kBlue);
+  //fgaus2.SetParameter(0, fgaus.GetParameter(0));
+  fgaus2.SetParameter(0, valuePeak / 10);
+  fgaus2.FixParameter(1, xPeak);
+  //fgaus2.SetParameter(1, xPeak);
+  //fgaus2.SetParameter(2, fgaus.GetParameter(2));
+  fgaus2.FixParameter(2, sigma0);
+  //fgaus2.SetParameter(2, sigma0);
+  proj->Fit("fgaus2", "BRQN");
+  fgaus2.ReleaseParameter(1);
+  fgaus2.ReleaseParameter(2);
+  if (printFits)
+    proj->Fit("fgaus2", "BR+");
+  else
+    proj->Fit("fgaus2", "BRQ+");
+
+  if (!pdfName.empty()) {
+    proj->GetXaxis()->SetRangeUser(-sigma0 * 3, sigma0 * 3);
+    c.SaveAs(pdfName.c_str());
+  }
+
+  //PlotDXYProjection(fullHistName.c_str(), fullHistNameME.c_str(), histogram2, histogram2ME, scaleME, -5.0, 5.0, 1, c, true, printFits);
+
+  return {fgaus2.GetParameter(1), fgaus2.GetParError(1)};
+  //return {fcb.GetParameter(4), fgaus.GetParError(4)};
+}
+
+std::pair<double, double> PlotDXYNoFit(TH1* proj, TCanvas& c, std::string pdfName = "", bool printFits = false)
+{
+  c.Clear();
+  proj->SetLineColor(kRed);
+  proj->Draw("E");
+
+  int valuePeak = proj->GetMaximum();
+  if (valuePeak < 10) {
+    return {nan(""), nan("")};
+  }
+
+  int binPeak = proj->GetMaximumBin();
+  double xPeak = proj->GetXaxis()->GetBinCenter(binPeak);
+  double sigma0 = GetEstimatedSigma(proj);
+
+  double tot = 0;
+  double wtot = 0;
+  for (int bin = binPeak - 3; bin <= binPeak + 3; bin++) {
+    double w = proj->GetBinContent(bin) / valuePeak;
+    tot += w * proj->GetXaxis()->GetBinCenter(bin);
+    wtot += w;
+  }
+  if (wtot == 0) {
+    return {nan(""), nan("")};
+  }
+
+  return {tot / wtot, sigma0};
+}
+
 void PlotChamberResidualvsMomentum(THnSparse* hnx, THnSparse* hny, TCanvas& c)
 {
+  if (!hnx || !hny) return;
+
   if (hnx->GetNdimensions() < 5) {
     return;
   }
@@ -821,8 +987,6 @@ void PlotChamberResidualvsMomentum(THnSparse* hnx, THnSparse* hny, TCanvas& c)
   int pAxisId = 4;
 
   int momRebin = 2;
-
-  if (!hnx || !hny) return;
 
   c.Clear();
   c.cd();
@@ -927,6 +1091,246 @@ void PlotChamberResidualvsMomentum(THnSparse* hnx, THnSparse* hny, TCanvas& c)
       c.SaveAs(pdfFileName.c_str());
     }
   }
+}
+
+void PlotValueInMomentumRange(THnSparse* hn, double momMin, double momMax, double yrange, TCanvas& c)
+{
+  if (!hn) return;
+
+  if (hn->GetNdimensions() < 6) {
+    return;
+  }
+
+  int residualAxisId = 0;
+  int xAxisId = 1;
+  int yAxisId = 2;
+  int quadrantAxisId = 3;
+  int signAxisId = 4;
+  int pAxisId = 5;
+
+  int momRebin = 2;
+
+  c.Clear();
+  c.cd();
+
+  std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
+
+  int colors[4] = {kBlue, kRed, kOrange, kCyan};
+  //int markers[4] = {kStar, kCircle, kMultiply, kFullDotLarge};
+  int markers[2] = {kStar, kCircle};
+  int lineStyles[2] = {kSolid, kDashed};
+
+  // p >= xx GeV/c
+  int momBinMin = hn->GetAxis(pAxisId)->FindBin(momMin + epsilon);
+  int momBinMax = hn->GetAxis(pAxisId)->FindBin(momMax - epsilon);
+  hn->GetAxis(pAxisId)->SetRange(momBinMin, momBinMax);
+
+  // mean[sign][quadrant][momentum]
+  std::array<std::array<std::vector<double>, 4>, 2> momentum;
+  std::array<std::array<std::vector<double>, 4>, 2> momentumErr;
+  std::array<std::array<std::vector<double>, 4>, 2> mean;
+  std::array<std::array<std::vector<double>, 4>, 2> meanErr;
+
+  TMultiGraph* mg = new TMultiGraph();
+  mg->SetTitle(Form("%s;p (GeV/c); %s", hn->GetTitle(), hn->GetAxis(residualAxisId)->GetTitle()));
+  TGraphErrors* gr = new TGraphErrors();
+  gr->AddPoint(0, 1000);
+  gr->AddPoint(hn->GetAxis(pAxisId)->GetXmax(), 1000);
+  mg->Add(gr,"lp");
+
+  TLegend* legend = new TLegend(0.6, 0.8, 0.9, 0.9);
+  legend->SetNColumns(4);
+
+  // loop on charge sign
+  for (int sign = 0; sign < 2; sign++) {
+    hn->GetAxis(signAxisId)->SetRange(sign + 1, sign + 1);
+    //if (sign != 0) continue;
+    // loop on quadrant
+    for (int quadrant = 0; quadrant < 4; quadrant++) {
+      hn->GetAxis(quadrantAxisId)->SetRange(quadrant + 1, quadrant + 1);
+      //if (quadrant != 0) continue;
+
+      auto* proj = hn->Projection(residualAxisId);
+      proj->SetTitle(std::format("MCH DCA, Q{} {}", quadrant, (sign == 0 ? "+" : "-")).c_str());
+      auto result = PlotDXYSimple(proj, c);
+      //auto result = PlotDXYSimple(proj, c, pdfFileName, true);
+      if (std::isnan(result.first) || std::isnan(result.second)) {
+        delete proj;
+        continue;
+      }
+      if (false && sign == 0 && quadrant == 0) {
+        proj->Draw();
+        c.SaveAs(pdfFileName.c_str());
+      }
+
+      momentum[sign][quadrant].push_back(momMin);
+      momentumErr[sign][quadrant].push_back(0);
+      momentum[sign][quadrant].push_back(momMax);
+      momentumErr[sign][quadrant].push_back(0);
+      mean[sign][quadrant].push_back(result.first);
+      meanErr[sign][quadrant].push_back(result.second);
+      mean[sign][quadrant].push_back(result.first);
+      meanErr[sign][quadrant].push_back(result.second);
+
+      //std::cout << std::format("{} Q{} ({}) p={:0.1f}: {} +/- {}",
+      //    hn->GetTitle(), quadrant, (sign == 0 ? "+" : "-"), avgMom, result.first, result.second) << std::endl;
+
+      delete proj;
+    }
+
+    for (int quadrant = 0; quadrant < 4; quadrant++) {
+      if (mean[sign][quadrant].empty()) {
+        //std::cout << std::format("CH{} Q{} ({}) d{}[0]=NA",
+        //    chamber+1, quadrant, (sign == 0 ? "+" : "-"), coordinate) << std::endl;
+        continue;
+      }
+      //std::cout << std::format("CH{} Q{} ({}) d{}[0]={}",
+      //    chamber+1, quadrant, (sign == 0 ? "+" : "-"), coordinate, mean[sign][quadrant][0]) << std::endl;
+      TGraphErrors* gr = new TGraphErrors(momentum[sign][quadrant].size(),
+          momentum[sign][quadrant].data(),
+          mean[sign][quadrant].data(),
+          momentumErr[sign][quadrant].data(),
+          meanErr[sign][quadrant].data());
+      gr->SetLineColor(colors[quadrant]);
+      gr->SetMarkerColor(colors[quadrant]);
+      gr->SetMarkerStyle(markers[sign]);
+      gr->SetMarkerSize(2);
+      gr->SetLineStyle(lineStyles[sign]);
+      mg->Add(gr,"l");
+      auto* entry = legend->AddEntry(gr, (quadrants[quadrant] + (sign == 0 ? " (+)" : " (-)")).c_str(), "P");
+      entry->SetTextColor(colors[quadrant]);
+    }
+  }
+
+  mg->Draw("a");
+  mg->SetMinimum(-yrange);
+  mg->SetMaximum(yrange);
+  legend->Draw();
+  c.SaveAs(pdfFileName.c_str());
+}
+
+void PlotValueVsMomentum(THnSparse* hnx, double yrange, TCanvas& c)
+{
+  if (!hnx) {
+    return;
+  }
+  if (hnx->GetNdimensions() < 6) {
+    return;
+  }
+
+  int residualAxisId = 0;
+  int xAxisId = 1;
+  int yAxisId = 2;
+  int quadrantAxisId = 3;
+  int signAxisId = 4;
+  int pAxisId = 5;
+
+  int momRebin = 2;
+
+  c.Clear();
+  c.cd();
+
+  std::array<THnSparse*, 2> hn{ hnx, nullptr };
+  std::array<std::string, 2> coordinates{ "x", "y" };
+  std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
+
+  int colors[4] = {kBlue, kRed, kOrange, kCyan};
+  //int markers[4] = {kStar, kCircle, kMultiply, kFullDotLarge};
+  int markers[2] = {kStar, kCircle};
+  int lineStyles[2] = {kSolid, kDashed};
+
+
+  // loop on coordinates
+  for (int ci = 0; ci < 1; ci++) {
+    auto coordinate = coordinates[ci];
+    // mean[sign][quadrant][momentum]
+    std::array<std::array<std::vector<double>, 4>, 2> momentum;
+    std::array<std::array<std::vector<double>, 4>, 2> momentumErr;
+    std::array<std::array<std::vector<double>, 4>, 2> mean;
+    std::array<std::array<std::vector<double>, 4>, 2> meanErr;
+
+    TMultiGraph* mg = new TMultiGraph();
+    mg->SetTitle(Form("%s vs. momentum;p (GeV/c); %s", hn[ci]->GetTitle(), hn[ci]->GetAxis(residualAxisId)->GetTitle()));
+    TGraphErrors* gr = new TGraphErrors();
+    gr->AddPoint(0, 1000);
+    gr->AddPoint(hn[ci]->GetAxis(pAxisId)->GetXmax(), 1000);
+    mg->Add(gr,"lp");
+
+    TLegend* legend = new TLegend(0.6, 0.8, 0.9, 0.9);
+    legend->SetNColumns(4);
+
+    // loop on charge sign
+    for (int sign = 0; sign < 2; sign++) {
+      hn[ci]->GetAxis(signAxisId)->SetRange(sign + 1, sign + 1);
+      //if (sign != 0) continue;
+      // loop on quadrant
+      for (int quadrant = 0; quadrant < 4; quadrant++) {
+        hn[ci]->GetAxis(quadrantAxisId)->SetRange(quadrant + 1, quadrant + 1);
+        //if (quadrant != 3) continue;
+        // loop on momentum
+        for (int mom = 0; mom < hn[ci]->GetAxis(pAxisId)->GetNbins(); mom += momRebin) {
+          hn[ci]->GetAxis(pAxisId)->SetRange(mom + 1, mom + momRebin);
+          //hn[ci]->GetAxis(pAxisId)->SetRange(5, -1);
+
+          auto* proj = hn[ci]->Projection(residualAxisId);
+          proj->SetTitle(std::format("MCH DCA({}), Q{} {}", coordinate, quadrant, (sign == 0 ? "+" : "-")).c_str());
+          auto result = PlotDXYSimple(proj, c);
+          //auto result = (quadrant == 2 && sign == 1) ? PlotDXYSimple(proj, c, pdfFileName, true) : PlotDXYSimple(proj, c);
+          //auto result = PlotDCAMCH(proj);
+          if (std::isnan(result.first) || std::isnan(result.second)) {
+            continue;
+          }
+          if (false && ci == 0 && sign == 0 && quadrant == 0) {
+            proj->Draw();
+            c.SaveAs(pdfFileName.c_str());
+          }
+
+          double avgMom = (hn[ci]->GetAxis(pAxisId)->GetBinLowEdge(mom + 1) +
+              hn[ci]->GetAxis(pAxisId)->GetBinUpEdge(mom + momRebin)) / 2.f;
+          momentum[sign][quadrant].push_back(avgMom);
+          momentumErr[sign][quadrant].push_back(0);
+          mean[sign][quadrant].push_back(result.first);
+          meanErr[sign][quadrant].push_back(result.second);
+
+          //std::cout << std::format("{} Q{} ({}) p={:0.1f}: {} +/- {}",
+          //    hn[ci]->GetTitle(), quadrant, (sign == 0 ? "+" : "-"), avgMom, result.first, result.second) << std::endl;
+
+          delete proj;
+        }
+      }
+
+      for (int quadrant = 0; quadrant < 4; quadrant++) {
+        if (mean[sign][quadrant].empty()) {
+          //std::cout << std::format("CH{} Q{} ({}) d{}[0]=NA",
+          //    chamber+1, quadrant, (sign == 0 ? "+" : "-"), coordinate) << std::endl;
+          continue;
+        }
+        //std::cout << std::format("CH{} Q{} ({}) d{}[0]={}",
+        //    chamber+1, quadrant, (sign == 0 ? "+" : "-"), coordinate, mean[sign][quadrant][0]) << std::endl;
+        TGraphErrors* gr = new TGraphErrors(momentum[sign][quadrant].size(),
+            momentum[sign][quadrant].data(),
+            mean[sign][quadrant].data(),
+            momentumErr[sign][quadrant].data(),
+            meanErr[sign][quadrant].data());
+        gr->SetLineColor(colors[quadrant]);
+        gr->SetMarkerColor(colors[quadrant]);
+        gr->SetMarkerStyle(markers[sign]);
+        gr->SetMarkerSize(2);
+        gr->SetLineStyle(lineStyles[sign]);
+        mg->Add(gr,"pl");
+        auto* entry = legend->AddEntry(gr, (quadrants[quadrant] + (sign == 0 ? " (+)" : " (-)")).c_str(), "P");
+        entry->SetTextColor(colors[quadrant]);
+      }
+    }
+
+    mg->Draw("a");
+    mg->SetMinimum(-yrange);
+    mg->SetMaximum(yrange);
+    legend->Draw();
+    c.SaveAs(pdfFileName.c_str());
+  }
+
+  PlotValueInMomentumRange(hnx, mchMomMin, 100, yrange, c);
 }
 
 void PlotDXYProjection(const char* fullHistName, const char* fullHistNameME, TH2* histogram2, TH2* histogram2ME, double scaleME, float yMin, float yMax, int projRebin, TCanvas& c, bool subtractBackground, bool printFits = false)
@@ -1261,6 +1665,93 @@ void PlotZTrend(int n, double* xv, std::array<std::array<std::pair<double, doubl
   c.SaveAs(pdfFileName.c_str());
 }
 
+void PlotDCAXY(std::array<std::array<std::pair<double, double>, 4>, 2>& dcax,
+               std::array<std::array<std::pair<double, double>, 4>, 2>& dcay,
+               TCanvas& c)
+{
+  double exv[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  double yv[10];
+  double eyv[10];
+
+  std::array<std::string, 4> quadrants = {"Q0", "Q1", "Q2", "Q3"};
+
+  int colors[4] = {kBlue, kRed, kOrange, kCyan};
+  int markers[2] = {kMultiply, kCircle};
+
+  c.Clear();
+  c.cd();
+
+  TMultiGraph* mg = new TMultiGraph();
+  mg->SetTitle("MCH DCA (X,Y)");
+  TGraphErrors* gr = new TGraphErrors();
+  gr->AddPoint(-10, 1000);
+  gr->AddPoint(10, 1000);
+  mg->Add(gr,"p");
+
+  TLegend* legend = new TLegend(0.6, 0.8, 0.9, 0.9);
+  legend->SetNColumns(4);
+
+  for (int sign = 0; sign < 2; sign++) {
+  for (int j = 0; j < quadrants.size(); j++) {
+    TGraphErrors* gr = new TGraphErrors();
+    gr->SetLineColor(colors[j]);
+    gr->SetMarkerColor(colors[j]);
+    gr->SetMarkerStyle(markers[sign]);
+    gr->SetMarkerSize(2);
+    gr->AddPoint(dcax[sign][j].first, dcay[sign][j].first);
+    gr->SetPointError(0, dcax[sign][j].second, dcay[sign][j].second);
+    mg->Add(gr,"p");
+    auto* entry = legend->AddEntry(gr, (quadrants[j] + " ").c_str(), "P");
+    entry->SetTextColor(colors[j]);
+  }
+  }
+
+  mg->Draw("a");
+  mg->SetMinimum(-1);
+  mg->SetMaximum(1);
+  mg->GetXaxis()->SetRangeUser(-1, 1);
+  legend->Draw();
+  TLine* l1 = new TLine(-1, 0, 1, 0);
+  l1->SetLineStyle(kDashed);
+  l1->Draw();
+  TLine* l2 = new TLine(0, -1, 0, 1);
+  l2->SetLineStyle(kDashed);
+  l2->Draw();
+  c.SaveAs(pdfFileName.c_str());
+  delete l1;
+  delete l2;
+
+  mg->Draw("a");
+  mg->SetMinimum(-0.5);
+  mg->SetMaximum(0.5);
+  mg->GetXaxis()->SetRangeUser(-0.5, 0.5);
+  legend->Draw();
+  l1 = new TLine(-0.5, 0, 0.5, 0);
+  l1->SetLineStyle(kDashed);
+  l1->Draw();
+  l2 = new TLine(0, -0.5, 0, 0.5);
+  l2->SetLineStyle(kDashed);
+  l2->Draw();
+  c.SaveAs(pdfFileName.c_str());
+  delete l1;
+  delete l2;
+
+  mg->Draw("a");
+  mg->SetMinimum(-0.2);
+  mg->SetMaximum(0.2);
+  mg->GetXaxis()->SetRangeUser(-0.2, 0.2);
+  legend->Draw();
+  l1 = new TLine(-0.2, 0, 0.2, 0);
+  l1->SetLineStyle(kDashed);
+  l1->Draw();
+  l2 = new TLine(0, -0.2, 0, 0.2);
+  l2->SetLineStyle(kDashed);
+  l2->Draw();
+  c.SaveAs(pdfFileName.c_str());
+  delete l1;
+  delete l2;
+}
+
 void PlotDECorrelations(TH2* hpos, TH2* hneg, TCanvas& c)
 {
   if (!hpos || !hneg) return;
@@ -1535,6 +2026,8 @@ void PlotChamberResidualsAndDCA(THnSparse* hDCAx, THnSparse* hDCAy, THnSparse* h
 
 /**/
 
+  PlotDCAXY(DCAx, DCAy, c);
+
   double xv[10] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
 
   PlotZTrend(10, chamberZ, meanDx[0], DCAx[0], "#Delta(x) vs. chamber z (positive);chamber z (cm); #Delta(x) (cm)", -5.0, 5.0, c);
@@ -1600,6 +2093,32 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
 #endif
 
 
+#ifdef DE_GROUPING_V2_
+  std::vector<std::tuple<std::string, int, std::string, int, std::vector<int>>> deGroups {
+    {"DE100", 1, "Q0", 0, {100}},
+    {"DE101", 1, "Q1", 1, {101}},
+    {"DE102", 1, "Q2", 2, {102}},
+    {"DE103", 1, "Q3", 3, {103}},
+    {"DE200", 2, "Q0", 0, {200}},
+    {"DE201", 2, "Q1", 1, {201}},
+    {"DE202", 2, "Q2", 2, {202}},
+    {"DE203", 2, "Q3", 3, {203}},
+    {"DE300", 3, "Q0", 0, {300}},
+    {"DE301", 3, "Q1", 1, {301}},
+    {"DE302", 3, "Q2", 2, {302}},
+    {"DE303", 3, "Q3", 3, {303}},
+    {"DE400", 4, "Q0", 0, {400}},
+    {"DE401", 4, "Q1", 1, {401}},
+    {"DE402", 4, "Q2", 2, {402}},
+    {"DE403", 4, "Q3", 3, {403}}
+  };
+
+  std:vector<std::string> deGroupNames{
+    "Q0", "Q1"
+  };
+#endif
+
+
 #ifdef DE_GROUPING_V2
   std::vector<std::tuple<std::string, int, std::string, int, std::vector<int>>> deGroups {
     {"DE100", 1, "Q0", 0, {100}},
@@ -1639,7 +2158,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
     {"CH7LC", 7, "LC", 5, {713}},
     {"CH7LB", 7, "LB", 6, {714, 715, 716, 717, 718, 719}},
 
-    {"CH7RT", 7, "RT", 7, {701, 702, 703, 704, 705, 706, 707}},
+    {"CH7RT", 7, "RT", 7, {701, 702, 703, 704, 705, 706}},
     {"CH7RC", 7, "RC", 8, {700}},
     {"CH7RB", 7, "RB", 9, {720, 721, 722, 723, 724, 725}},
 
@@ -1647,7 +2166,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
     {"CH8LC", 8, "LC", 5, {813}},
     {"CH8LB", 8, "LB", 6, {814, 815, 816, 817, 818, 819}},
 
-    {"CH8RT", 8, "RT", 7, {801, 802, 803, 804, 805, 806, 807}},
+    {"CH8RT", 8, "RT", 7, {801, 802, 803, 804, 805, 806}},
     {"CH8RC", 8, "RC", 8, {800}},
     {"CH8RB", 8, "RB", 9, {820, 821, 822, 823, 824, 825}},
 
@@ -1655,7 +2174,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
     {"CH9LC", 9, "LC", 5, {913}},
     {"CH9LB", 9, "LB", 6, {914, 915, 916, 917, 918, 919}},
 
-    {"CH9RT", 9, "RT", 7, {901, 902, 903, 904, 905, 906, 907}},
+    {"CH9RT", 9, "RT", 7, {901, 902, 903, 904, 905, 906}},
     {"CH9RC", 9, "RC", 8, {900}},
     {"CH9RB", 9, "RB", 9, {920, 921, 922, 923, 924, 925}},
 
@@ -1663,7 +2182,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
     {"CH10LC", 10, "LC", 5, {1013}},
     {"CH10LB", 10, "LB", 6, {1014, 1015, 1016, 1017, 1018, 1019}},
 
-    {"CH10RT", 10, "RT", 7, {1001, 1002, 1003, 1004, 1005, 1006, 1007}},
+    {"CH10RT", 10, "RT", 7, {1001, 1002, 1003, 1004, 1005, 1006}},
     {"CH10RC", 10, "RC", 8, {1000}},
     {"CH10RB", 10, "RB", 9, {1020, 1021, 1022, 1023, 1024, 1025}}
   };
@@ -1673,7 +2192,8 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
   };
 #endif
 
-  std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
+  std::array<std::vector<std::array<TH1*, 2>>, 2> hGroupResiduals;
+  std::array<std::vector<std::array<TH2*, 2>>, 2> hGroupResidualsVsSlope;
 
   // one map per coordinate
   // map index is the group name (3rd column)
@@ -1710,6 +2230,14 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
   // 3: charge sign
   // 4: momentum
 
+  // axis assignments (newer version with 6 axes):
+  // 0: residual
+  // 1: DE index
+  // 2: quadrant
+  // 3: charge sign
+  // 4: momentum
+  // 5: track slope
+
   // -----------------
   // X direction
 
@@ -1721,6 +2249,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
     int quadrantAxisId = 2;
     int signAxisId = 3;
     int pAxisId = 4;
+    int slopeAxisId = 5;
 
     if (hDE[0]->GetNdimensions() == 4) {
       residualAxisId = 3;
@@ -1728,9 +2257,14 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
       quadrantAxisId = 1;
       signAxisId = 2;
       pAxisId = -1;
+      slopeAxisId = -1;
     }
 
-    for (int xy = 0; xy < 2; xy++) {
+    if (hDE[0]->GetNdimensions() == 5) {
+      slopeAxisId = -1;
+    }
+
+    for (int xy = 0; xy < -2; xy++) {
       hDE[xy]->GetAxis(0)->SetRange(0, -1);
       hDE[xy]->GetAxis(1)->SetRange(0, -1);
       hDE[xy]->GetAxis(2)->SetRange(0, -1);
@@ -1763,8 +2297,13 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
           proj->SetTitle(std::format("#Delta{}, DE{} {}", (xy == 0 ? "x" : "y"), getDEFromIndex(i), (k == 0 ? "positive" : "negative")).c_str());
           std::cout << std::format("[TOTO] DE{}({}) momRange={},{} signBin={} deBin={}  entries={}", getDEFromIndex(i), (xy == 0 ? "x" : "y"), momBin, momBinMax, k+1, i+1, proj->GetEntries()) << std::endl;
           auto mean = PlotDXY(proj, c3, residualsDEFileName);
-          histDxyVsDE[k]->SetBinContent(i + 1, mean.first);
-          histDxyVsDE[k]->SetBinError(i + 1, mean.second);
+          if (std::isnan(mean.first) || std::isnan(mean.second)) {
+            histDxyVsDE[k]->SetBinContent(i + 1, 0);
+            histDxyVsDE[k]->SetBinError(i + 1, 0);
+          } else {
+            histDxyVsDE[k]->SetBinContent(i + 1, mean.first);
+            histDxyVsDE[k]->SetBinError(i + 1, mean.second);
+          }
         }
       }
       c.Clear();
@@ -1809,7 +2348,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
       }
     }
 
-    //   std::array<std::vector<std::array<TH1*, 2>>, 2> hDEResiduals;
+    //   std::array<std::vector<std::array<TH1*, 2>>, 2> hGroupResiduals;
     //hn->GetAxis(1)->SetRange(1, hn->GetAxis(1)->GetNbins());
     for (const auto& group : deGroups) {
       auto groupId = std::get<2>(group);
@@ -1817,7 +2356,10 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
 
       // loop over coordinate
       for (int xy = 0; xy < 2; xy++) {
-        hDEResiduals[xy].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
+        hGroupResiduals[xy].emplace_back(std::array<TH1*, 2>{nullptr, nullptr});
+        if (slopeAxisId >= 0) {
+          hGroupResidualsVsSlope[xy].emplace_back(std::array<TH2*, 2>{nullptr, nullptr});
+        }
         // loop over charge sign
         for (int charge = 0; charge < 2; charge++) {
           hDE[xy]->GetAxis(signAxisId)->SetRange(charge + 1, charge + 1);
@@ -1826,19 +2368,81 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
             auto deIndex = getDEindex(deId);
             hDE[xy]->GetAxis(deAxisId)->SetRange(deIndex + 1, deIndex + 1);
             TH1* proj = hDE[xy]->Projection(residualAxisId);
-            if (hDEResiduals[xy].back()[charge]) {
-              hDEResiduals[xy].back()[charge]->Add(proj);
+            TH2* projVsSlope = nullptr;
+            if (slopeAxisId >= 0) {
+              projVsSlope = hDE[xy]->Projection(residualAxisId, slopeAxisId);
+            }
+            if (hGroupResiduals[xy].back()[charge]) {
+              hGroupResiduals[xy].back()[charge]->Add(proj);
               delete proj;
             } else {
               proj->SetTitle(std::format("{} - #Delta{}, {}", std::get<0>(group), (xy == 0 ? "x" : "y"), (charge == 0 ? "positive" : "negative")).c_str());
-              hDEResiduals[xy].back()[charge] = proj;
+              hGroupResiduals[xy].back()[charge] = proj;
+            }
+
+            // residuals vs. track slope
+            if (projVsSlope) {
+              if (hGroupResidualsVsSlope[xy].back()[charge]) {
+                std::cout << "Adding residual vs. slope plot for group " << std::get<0>(group) << "  hGroupResidualsVsSlope[xy].back()[charge]: " << hGroupResidualsVsSlope[xy].back()[charge] << std::endl;
+                hGroupResidualsVsSlope[xy].back()[charge]->Add(projVsSlope);
+                delete projVsSlope;
+              } else {
+                std::cout << "Initializing residual vs. slope plot for group " << std::get<0>(group) << std::endl;
+                projVsSlope->SetTitle(std::format("{} - #Delta{} vs. slope{}, {}", std::get<0>(group), (xy == 0 ? "x" : "y"), (xy == 0 ? "x" : "y"), (charge == 0 ? "positive" : "negative")).c_str());
+                hGroupResidualsVsSlope[xy].back()[charge] = projVsSlope;
+                std::cout << "  hGroupResidualsVsSlope[xy].back()[charge]: " << hGroupResidualsVsSlope[xy].back()[charge] << std::endl;
+              }
             }
           }
 
-          std::cout << std::format("hDEResiduals[xy].size(): {}", hDEResiduals[xy].size()) << std::endl;
+          std::cout << std::format("hGroupResiduals[xy].size(): {}", hGroupResiduals[xy].size()) << std::endl;
+          std::cout << std::format("  Group {} xy={} charge={} => entries={}", std::get<0>(group), xy, charge, hGroupResiduals[xy].back()[charge]->GetEntries()) << std::endl;
+          std::cout << std::format("hGroupResidualsVsSlope[xy].size(): {}", hGroupResidualsVsSlope[xy].size()) << std::endl;
+          std::cout << std::format("  Group {} xy={} charge={} => entries={}", std::get<0>(group), xy, charge, hGroupResidualsVsSlope[xy].back()[charge]->GetEntries()) << std::endl;
 
           // compute average shift for this group, charge and coordinate
-          auto mean = PlotDXY(hDEResiduals[xy].back()[charge], c5, residualsGroupsFileName);
+          //auto mean = PlotDXY(hGroupResiduals[xy].back()[charge], c5, residualsGroupsFileName);
+          auto mean = PlotDXYSimple(hGroupResiduals[xy].back()[charge], c5, residualsGroupsFileName);
+          if (!hGroupResidualsVsSlope[xy].empty() && std::get<3>(group) < 4) {
+            std::cout << "Plotting residual vs. slope plot for group " << std::get<0>(group) << std::endl;
+            c5.Clear();
+            c5.cd();
+            TH2* h2slope = hGroupResidualsVsSlope[xy].back()[charge];
+            h2slope->Draw("colz");
+            h2slope->GetYaxis()->SetRangeUser(-5.0, 5.0);
+            c5.SaveAs(residualsGroupsFileName.c_str());
+            TMultiGraph mgrSlope;
+            TGraphErrors grSlopeAxis;
+            grSlopeAxis.AddPoint(h2slope->GetXaxis()->GetXmin(), -100);
+            grSlopeAxis.AddPoint(h2slope->GetXaxis()->GetXmax(), -100);
+            mgrSlope.Add(&grSlopeAxis);
+            TGraphErrors grSlope;
+            for (int xbin = 1; xbin <= h2slope->GetXaxis()->GetNbins(); xbin++) {
+              TH1* slopeProj = (TH1*)h2slope->ProjectionY(std::format("{}_py_{}", h2slope->GetName(), xbin).c_str(), xbin, xbin);
+              //auto meanForSlope = PlotDXYNoFit(slopeProj, c5);
+              auto meanForSlope = PlotDXYSimple(slopeProj, c5);
+              if (!std::isnan(meanForSlope.first) && !std::isnan(meanForSlope.second)) {
+                grSlope.AddPoint(h2slope->GetXaxis()->GetBinCenter(xbin), meanForSlope.first);
+                grSlope.SetPointError(grSlope.GetN() - 1, meanForSlope.second);
+                std::cout << std::format("  mean={} error={}", meanForSlope.first, meanForSlope.second) << std::endl;
+              }
+              delete slopeProj;
+            }
+            TF1 polFit("polFit", "pol1", grSlope.GetPointX(2), grSlope.GetPointX(grSlope.GetN() - 3));
+            grSlope.Fit("polFit", "BRQ");
+            mgrSlope.Add(&grSlope);
+            mgrSlope.Draw("AL*");
+            mgrSlope.SetMinimum(-1.0);
+            mgrSlope.SetMaximum(1.0);
+            mgrSlope.SetTitle(h2slope->GetTitle());
+            c5.SaveAs(residualsGroupsFileName.c_str());
+
+            //if (xy == 0) {
+              // the z shift of the current DE is estimated as the residual for track slope = 1
+              double deZShift = -polFit.GetParameter(1);
+              std::cout << std::format("[TOTO] {} z shift ({} residual, {}): {:+0.3f}", std::get<0>(group), (xy == 0 ? "x" : "y"), (charge == 0 ? "+" : "-"), deZShift) << std::endl;
+            //}
+          }
           // assign the shift to all the Detection Eelements in the group
           if (!std::isnan(mean.first) && !std::isnan(mean.second)) {
             for (auto deId : std::get<4>(group)) {
@@ -1860,23 +2464,34 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
         }
 
         std::cout << "Computing average and delta" << std::endl;
-        std::cout << std::format("groupResiduals[xy][groupId][0][2].size(): {}", groupResiduals[xy][groupId][0][2].size()) << std::endl;
-        double residualPos = groupResiduals[xy][groupId][0][2].back();
-        double residualNeg = groupResiduals[xy][groupId][1][2].back();
-        double residualPosErr = groupResiduals[xy][groupId][0][3].back();
-        double residualNegErr = groupResiduals[xy][groupId][1][3].back();
+        std::cout << std::format("groupResiduals[{}][{}][0][2].size(): {}", xy, groupId, groupResiduals[xy][groupId][0][2].size()) << std::endl;
+        std::cout << std::format("groupResiduals[{}][{}][1][2].size(): {}", xy, groupId, groupResiduals[xy][groupId][1][2].size()) << std::endl;
+        std::cout << std::format("groupResiduals[{}][{}][0][3].size(): {}", xy, groupId, groupResiduals[xy][groupId][0][3].size()) << std::endl;
+        std::cout << std::format("groupResiduals[{}][{}][1][3].size(): {}", xy, groupId, groupResiduals[xy][groupId][1][3].size()) << std::endl;
+        double residualPos = groupResiduals[xy][groupId][0][2].empty() ? 0 : groupResiduals[xy][groupId][0][2].back();
+        double residualNeg = groupResiduals[xy][groupId][1][2].empty() ? 0 : groupResiduals[xy][groupId][1][2].back();
+        double residualPosErr = groupResiduals[xy][groupId][0][3].empty() ? 0 : groupResiduals[xy][groupId][0][3].back();
+        double residualNegErr = groupResiduals[xy][groupId][1][3].empty() ? 0 : groupResiduals[xy][groupId][1][3].back();
         double residualAverage = (residualPos + residualNeg) / 2.0;
         double residualDelta = residualPos - residualNeg;
         double residualErr = std::sqrt(residualPosErr*residualPosErr + residualNegErr*residualNegErr);
 
+        //std::cout << "1" << endl;
         groupResidualsAverage[xy][groupId][0].push_back(chamberZ[chamberId]);
+        //std::cout << "2" << endl;
         groupResidualsAverage[xy][groupId][1].push_back(0);
+        //std::cout << "3" << endl;
         groupResidualsAverage[xy][groupId][2].push_back(residualAverage);
+        //std::cout << "4" << endl;
         groupResidualsAverage[xy][groupId][3].push_back(residualErr);
+        //std::cout << "5" << endl;
 
         groupResidualsDelta[xy][groupId][0].push_back(chamberZ[chamberId]);
+        //std::cout << "6" << endl;
         groupResidualsDelta[xy][groupId][1].push_back(0);
+        //std::cout << "7" << endl;
         groupResidualsDelta[xy][groupId][2].push_back(residualDelta);
+        //std::cout << "8" << endl;
         groupResidualsDelta[xy][groupId][3].push_back(residualErr);
         std::cout << "Computing average and delta done." << std::endl;
       }
@@ -1888,7 +2503,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
       TMultiGraph* mg = new TMultiGraph();
       mg->SetTitle(Form("#Delta(%s) for groups;z (cm); #Delta(%s) (cm)", coordinates[xy].c_str(), coordinates[xy].c_str()));
       TGraphErrors* gr = new TGraphErrors();
-      gr->AddPoint(500, 1000);
+      gr->AddPoint(0, 1000);
       gr->AddPoint(2000, 1000);
       mg->Add(gr,"lp");
 
@@ -1944,7 +2559,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
       TMultiGraph* mg = new TMultiGraph();
       mg->SetTitle(Form("#Delta(%s) charge average for groups;z (cm); #Delta(%s) (cm)", coordinates[xy].c_str(), coordinates[xy].c_str()));
       TGraphErrors* gr = new TGraphErrors();
-      gr->AddPoint(500, 1000);
+      gr->AddPoint(0, 1000);
       gr->AddPoint(2000, 1000);
       mg->Add(gr,"lp");
 
@@ -1989,7 +2604,7 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
       TMultiGraph* mg = new TMultiGraph();
       mg->SetTitle(Form("#Delta(%s) charge difference for groups;z (cm); #Delta(%s) (cm)", coordinates[xy].c_str(), coordinates[xy].c_str()));
       TGraphErrors* gr = new TGraphErrors();
-      gr->AddPoint(500, 1000);
+      gr->AddPoint(0, 1000);
       gr->AddPoint(2000, 1000);
       mg->Add(gr,"lp");
 
@@ -2022,8 +2637,10 @@ void GetDEShifts(THnSparse* hDEx, THnSparse* hDEy, std::map<int, std::array<std:
 
       c5.cd();
       mg->Draw("a");
-      mg->SetMinimum(-1);
-      mg->SetMaximum(1);
+      //mg->SetMinimum(-1);
+      //mg->SetMaximum(1);
+      mg->SetMinimum(-0.5);
+      mg->SetMaximum(0.5);
       legend->Draw();
       c5.SaveAs(residualsGroupsFileName.c_str());
     }
@@ -2235,7 +2852,70 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   c4.SaveAs("residuals_tracks.pdf)");
 
 
+  c.Clear();
+  c.SaveAs(pdfFileName.c_str());
+  // tracks position
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dxAtMFT").c_str()),
+      0.5, c
+  );
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dyAtMFT").c_str()),
+      0.5, c
+  );
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dxAtMCH").c_str()),
+      0.1, c
+  );
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dyAtMCH").c_str()),
+      0.1, c
+  );
+  // tracks slope
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dsxAtMFT").c_str()),
+      0.001, c
+  );
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dsyAtMFT").c_str()),
+      0.001, c
+  );
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dsxAtMCH").c_str()),
+      0.001, c
+  );
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dsyAtMCH").c_str()),
+      0.001, c
+  );
+  // tracks dphi
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dphiAtMFT").c_str()),
+      0.01, c
+  );
+  PlotValueVsMomentum(
+      GetTHnSparse(fAnalysisResults, (taskPath + "/matching/dphiAtMCH").c_str()),
+      0.01, c
+  );
 
+
+  TH1* hCorrectionsX = GetTH1(fAnalysisResults, (taskPath + "/residuals/de_alignment_corrections_x").c_str());
+  if (hCorrectionsX) {
+    hCorrectionsX->Scale(static_cast<double>(hCorrectionsX->GetXaxis()->GetNbins()) / hCorrectionsX->GetEntries());
+    hCorrectionsX->Draw("E");
+    c.SaveAs(pdfFileName.c_str());
+  }
+  TH1* hCorrectionsY = GetTH1(fAnalysisResults, (taskPath + "/residuals/de_alignment_corrections_y").c_str());
+  if (hCorrectionsY) {
+    hCorrectionsY->Scale(static_cast<double>(hCorrectionsY->GetXaxis()->GetNbins()) / hCorrectionsY->GetEntries());
+    hCorrectionsY->Draw("E");
+    c.SaveAs(pdfFileName.c_str());
+  }
+
+  //c.Clear();
+  //c.SaveAs((pdfFileName + ")").c_str());
+  //return;
+/*
   c.Clear();
   c.SaveAs(pdfFileName.c_str());
   PlotChamberResidualsAndDCA(
@@ -2252,8 +2932,8 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
       GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de").c_str()),
       deShifts, c, "residuals_de.pdf", "residuals_groups.pdf"
   );
-
-  std::map<int, std::array<std::array<double, 2>, 2>> deShiftsCorr;
+*/
+/**/
   c.Clear();
   c.SaveAs(pdfFileName.c_str());
   PlotChamberResidualsAndDCA(
@@ -2263,13 +2943,60 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
       GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de_corr").c_str()),
       c
   );
-
+/**/
+  std::map<int, std::array<std::array<double, 2>, 2>> deShiftsCorr;
   GetDEShifts(
       GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dx_vs_de_corr").c_str()),
       GetTHnSparse(fAnalysisResults, (taskPath + "/residuals/dy_vs_de_corr").c_str()),
-      deShiftsCorr, c, "residuals_de_corr.pdf", "residuals_groups_corr.pdf"
+      deShiftsCorr, c, "" /*"residuals_de_corr.pdf"*/, "residuals_groups_corr.pdf"
   );
 
+  // update alignment corrections
+  std::ofstream correctionsJson("corrections.json");
+  correctionsJson << "{" << std::endl;
+  // loop over DE ids
+  bool firstDE = true;
+  for (auto [deId, shift] : deShiftsCorr) {
+    auto deIndex = getDEindex(deId);
+    auto chamberIndex = getChamberIndex(deId);
+    auto cz = chamberZ[chamberIndex];
+    double maxCorrZ = -1.0;
+    //double corrDampingFactor = 0.5;
+    double corrDampingFactor = 0.0;
+    double corrZ = (chamberIndex > 3) ? maxCorrZ * (cz - 500.f) / (chamberZ[9] - 500.f) : 0.f;
+    if (hCorrectionsX && hCorrectionsY) {
+      std::cout << std::format("Shifts for DE{}:\n  X: {:+0.3f}\n  Y: {:+0.3f}",
+          deId, hCorrectionsX->GetBinContent(deIndex + 1), hCorrectionsY->GetBinContent(deIndex + 1)) << std::endl;
+    } else {
+      std::cout << std::format("Shifts for DE{}:\n  X: NA\n  Y: NA", deId) << std::endl;
+    }
+    std::cout << std::format("  Shifts corrections for DE{}:\n    X[+, -, avg]: {:+0.3f}, {:+0.3f}, {:+0.3f}\n    Y[+, -, avg]: {:+0.3f}, {:+0.3f}, {:+0.3f}",
+        deId, shift[0][0], shift[0][1], (shift[0][0] + shift[0][1]) / 2.0,
+        shift[1][0], shift[1][1], (shift[1][0] + shift[1][1]) / 2.0) << std::endl;
+
+    double shiftCorrX = ((shift[0][0] + shift[0][1]) / 2.0) * corrDampingFactor;
+    double shiftCorrY = ((shift[1][0] + shift[1][1]) / 2.0) * corrDampingFactor;
+    double averageCorrectionX = (hCorrectionsX ? hCorrectionsX->GetBinContent(deIndex + 1) : 0.f) - shiftCorrX;
+    double averageCorrectionY = (hCorrectionsY ? hCorrectionsY->GetBinContent(deIndex + 1) : 0.f) - shiftCorrY;
+
+    std::cout << std::format("  Corrections for DE{}:\n    X: {:+0.3f}\n    Y: {:+0.3f}",
+        deId, averageCorrectionX, averageCorrectionY) << std::endl;
+
+    if (!firstDE) {
+      correctionsJson << "," << std::endl;
+    }
+    correctionsJson << "  \"" << deId << "\": {" << std::endl;
+    correctionsJson << "    \"x\": " << averageCorrectionX << ","
+        << " \"y\": " << averageCorrectionY << ","
+        << " \"z\": " << corrZ << ","
+        << " \"yaw\": 0, \"pitch\": 0, \"roll\": 0" << std::endl;
+    correctionsJson << "  }";
+
+    firstDE = false;
+  }
+  correctionsJson << std::endl << "}" << std::endl;
+
+/*
   // update alignment corrections
   std::ofstream correctionsJson("corrections.json");
   std::ofstream halfCorrectionsJson("half-corrections.json");
@@ -2320,7 +3047,7 @@ void muonGlobalAlignmentMftMchResiduals(const char* _rootFileName = "AnalysisRes
   correctionsJson << "}" << std::endl;
   halfCorrectionsJson << "  \"0\": {}" << std::endl;
   halfCorrectionsJson << "}" << std::endl;
-
+*/
 
 /*
   c.Clear();

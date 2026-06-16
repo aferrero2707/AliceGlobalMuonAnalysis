@@ -1,8 +1,6 @@
 #include <MFTTracking/Constants.h>
 
 TCanvas c("c", "c", 1200, 800);
-c.SetGridx(true);
-c.SetGridy(true);
 
 constexpr int nPoints = 3;
 
@@ -17,6 +15,12 @@ std::vector<matchType> matchTypesVec = {
     {{2, 6}, "Wrong matches"},
     {{3, 7}, "Decay matches"},
     {{4, 8}, "Fake matches"}};
+
+const std::array<std::string, 3> matchingMethods{
+    "Prod",
+    "XGBOOSTv1",
+    "MatchXYPhiTanlMom"
+  };
 
 TH1* GetTH1(TFile* f, TString histname)
 {
@@ -43,11 +47,12 @@ TH3* GetTH3(TFile* f, TString histname)
 
 void PlotMatchEfficiancyAndPurity(TFile* rootFile)
 {
-  std::array<std::string, 3> matchingMethods{
-    "Prod",
-    "MatchXYPhiTanl",
-    "MatchXYPhiTanlMom"};
   std::array<std::string, 4> variables{"p", "pt", "eta", "phi"};
+
+  /*std::array<std::string, 3> matchingMethods{
+    "Prod",
+    "XGBOOSTv1",
+    "MatchXYPhiTanlMom"};*/
 
   std::array<std::array<TH1*, variables.size()>, matchingMethods.size()> effPlots, purityPlots;
 
@@ -213,7 +218,7 @@ TH1F* GetMissedRankingFraction(TH2* rankingHist)
 }
 
 void MatchRankingCompareMatchingMethods(TFile* rootFile,
-                                        const std::vector<std::string>& matchingMethods,
+                                        const std::span<const std::string> matchingMethods,
                                         std::string histName)
 {
   TH1* h1;
@@ -247,7 +252,7 @@ void MatchRankingCompareMatchingMethods(TFile* rootFile,
   legend->Draw();
   c.SaveAs("matchingQA.pdf");
 
-  std::vector<std::string> variables{"P", "Pt", "McParticleDz", "MftTrackMult", "MftTrackType", "DeltaChi2"};
+  std::vector<std::string> variables{"P", "Pt", "McParticleDz", "MftTrackMult", "MatchAttempts", "MftTrackType", "DeltaChi2"};
   for (auto variable : variables) {
     legend->Clear();
     c.Clear();
@@ -302,6 +307,7 @@ void MatchRankingCompareMatchingMethods(TFile* rootFile,
       h2 = GetTH2(rootFile, (path + histName + "Vs" + variable).c_str());
       h1 = GetMissedRankingFraction(h2);
       h1->SetLineColor(index + 1);
+      if (variable == "MatchAttempts") h1->GetXaxis()->SetRangeUser(0,100);
       if (index == 0)
         h1->Draw();
       else
@@ -315,7 +321,7 @@ void MatchRankingCompareMatchingMethods(TFile* rootFile,
 }
 
 void MatchingScoreCompareMatchingMethods(TFile* rootFile,
-                                         const std::vector<std::string>& matchingMethods,
+                                         const std::span<const std::string> matchingMethods,
                                          std::string histName,
                                          std::vector<int> matchTypeBins,
                                          std::string histTitle)
@@ -486,13 +492,10 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
   c.SaveAs("matchingQA.pdf");
 }
 
+
+// here we add the split to permit a plot vs either chi2 or matchscore --- depending on if this is a caller or callee
 void PlotMatchRanking(TFile* rootFile)
 {
-  std::vector<std::string> matchingMethods{
-    "Prod",
-    "MatchXYPhiTanl",
-    "MatchXYPhiTanlMom"};
-
   TH1* h1;
   TH2* h2;
   TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
@@ -606,11 +609,6 @@ void PlotMatchRanking(TFile* rootFile)
 
 void PlotMatchType(TFile* rootFile)
 {
-  std::vector<std::string> matchingMethods{
-    "Prod",
-    "MatchXYPhiTanl",
-    "MatchXYPhiTanlMom"};
-
   TH1* h1;
   TH2* h2;
   TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
@@ -716,7 +714,7 @@ void PlotInvmassForMatchTypes(TFile* rootFile, std::vector<int> types)
 
 // Plots the matching score distributions as a breakdown for each of the match types in matchtypevec for each of the matching methods
 // Should eventually be refactored into one function with MatchingScoreCompareVsVariable due to the high similarity
-void MatchTypePlot(TFile* rootFile, std::string histName, std::string method)
+void MatchTypePlot(TFile* rootFile, std::string histName, std::string method, std::string titleString)
 {
   TH1* h1{nullptr};
   TH2* h2{nullptr};
@@ -743,7 +741,7 @@ void MatchTypePlot(TFile* rootFile, std::string histName, std::string method)
         h1->Add((TH1 *)h2->ProjectionY((path + histName + std::to_string(bin)).c_str(), bin, bin));
       } else {
         h1 = (TH1 *)h2->ProjectionY((path + histName + std::to_string(bin)).c_str(), bin, bin);
-        h1->SetTitle(("Match Score - "+ method).c_str());
+        h1->SetTitle(( method +" "+titleString).c_str());
       }
     }
     if (h1->GetMaximum() > max) {
@@ -752,7 +750,7 @@ void MatchTypePlot(TFile* rootFile, std::string histName, std::string method)
     h1vec.push_back(h1);
 
     TH1F* ch1 = (TH1F*)h1->Clone();
-    ch1->SetTitle(("Match Score - "+ method + " (cumulative)").c_str());
+    ch1->SetTitle((titleString + " - "+ method + " (cumulative)").c_str());
     float integral = h1->Integral();
     int binMax = h1->GetXaxis()->GetNbins();
     for (int bin = 1; bin <= h1->GetXaxis()->GetNbins(); bin++) {
@@ -796,23 +794,45 @@ void MatchTypePlot(TFile* rootFile, std::string histName, std::string method)
   c.SaveAs("matchingQA.pdf");
 }
 
-void PlotMatchScoreVsMatchType(TFile* rootFile)
+void PlotMatchEvaluationVsMatchType(TFile* rootFile, std::string methodOfEvaluation, std::string titleString)
 {
-  std::vector<std::string> matchingMethods{
-      "Prod",
-      "MatchXYPhiTanl",
-      "MatchXYPhiTanlMom"};
-
   for (auto matchingMethod : matchingMethods) {
     c.Clear();
     TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
     title->Clear();
-    title->AddText(("Matching score vs match type for " + matchingMethod).c_str());
+    title->AddText((titleString + " vs match type for " + matchingMethod).c_str());
     title->Draw();
     c.SaveAs("matchingQA.pdf");
 
     std::string path = std::string("qa-matching/matching/MC/") + matchingMethod + "/";
-    MatchTypePlot(rootFile,"matchScoreVsType", matchingMethod);
+    MatchTypePlot(rootFile, methodOfEvaluation, matchingMethod, titleString);
+  }
+}
+
+void revisedChi2Breakdown(TFile *rootFile)
+{
+  TH1* h1;
+  TH2* h2;
+  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
+  TLegend* legend = new TLegend(0.6, 0.6, 0.9, 0.9);
+  const std::vector<std::pair<double, double>> ranges = {
+    {0.f, 10.f},
+    {10.f, 15.f},
+    {15.f, 20.f},
+    {20.f, 30.f},
+    {30.f, 50.f},
+    {50.f, 100.f}};
+  for (std::string method : matchingMethods) {
+    for (matchType matchtype : matchTypesVec) {
+      c.Clear();
+      title->Clear();
+      title->AddText(("Matching score distribution, for " + method).c_str());
+      title->AddText(("Good MCH tracks, " + matchtype.name).c_str());
+      title->Draw();
+      c.SaveAs("matchingQA.pdf");
+      MatchingScoreCompareVsVariable(rootFile, method, "matchChi2VsType", matchtype.bins, ( method + " Chi2 distribution for " + matchtype.name).c_str(), "P", ranges);
+
+    }
   }
 }
 
@@ -863,12 +883,16 @@ void matchingQA()
 {
   TFile* fAnalysisResults;
 
-  //fAnalysisResults = new TFile("outputs/LHC25i4/AnalysisResults.root");
+  //fAnalysisResults = new TFile("outputs/LHC26b13/AnalysisResults.root");
+  //fAnalysisResults = new TFile("AnalysisResultsFull.root");
   fAnalysisResults = new TFile("AnalysisResults.root");
 
   gStyle->SetOptStat(0);
   // gStyle->SetOptStat(1111);
   // gStyle->SetOptFit(1111);
+
+  c.SetGridx(false);
+  c.SetGridy(false);
 
   c.SaveAs("matchingQA.pdf(");
 
@@ -897,6 +921,18 @@ void matchingQA()
   c.SetLogx(kFALSE);
   c.SetLogy(kFALSE);
 
+  h1 = GetTH1(fAnalysisResults, "qa-matching/matching/MC/Prod/matchType");
+  if (h1) {
+    gStyle->SetOptStat(1111);
+    c.Clear();
+    h1->Draw("HIST TEXT00");
+    c.SaveAs("matchingQA.pdf");
+    gStyle->SetOptStat(0);
+  }
+
+  c.SetGridx(true);
+  c.SetGridy(true);
+
   c.Clear();
 
   PlotMatchEfficiancyAndPurity(fAnalysisResults);
@@ -905,7 +941,12 @@ void matchingQA()
 
   PlotMatchType(fAnalysisResults);
 
-  PlotMatchScoreVsMatchType(fAnalysisResults);
+  PlotMatchEvaluationVsMatchType(fAnalysisResults,"matchScoreVsType", "Match Score");
+
+    //new versions for non-matching people to plot it as a function of chi2 instea of matchscore
+  PlotMatchEvaluationVsMatchType(fAnalysisResults,"matchChi2VsType", "Chi2 distribution");
+
+  revisedChi2Breakdown(fAnalysisResults);
 
   PlotInvmass(fAnalysisResults);
 

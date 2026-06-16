@@ -517,6 +517,11 @@ void PlotDCASlopeProjection3D(std::string histName, float yMin, float yMax, int 
   }
 
   std::cout << std::format("Optimal z shift: {} cm", -linFit.GetParameter(0) / linFit.GetParameter(1) / 10.f) << std::endl;
+
+  TPaveLabel* zShiftLabel = new TPaveLabel(0.55, 0.7, 0.85, 0.8, std::format("z shift: {:+0.3} cm", -linFit.GetParameter(0) / linFit.GetParameter(1) / 10.f).c_str(), "brNDC");
+  zShiftLabel->SetFillColor(kWhite);
+  zShiftLabel->SetBorderSize(0);
+  zShiftLabel->Draw();
 }
 
 
@@ -797,15 +802,15 @@ void muonGlobalAlignmentVertexShift(const char* _rootFileName = "AnalysisResults
   //PlotDCAXY("y", c);
 
   c.Clear();
-  //PlotDCAPhiProjection3D("DCA/MFT/DCA_x_vs_phi_vs_zshift", -0.1, 0.1, 1, c,
-  //    -TMath::Pi()/4.f + TMath::Pi()/2.f, TMath::Pi()/4.f + TMath::Pi()/2.f, false);
-  //c.SaveAs(pdfFileName.c_str());
+  PlotDCAPhiProjection3D("DCA/MFT/DCA_x_vs_phi_vs_zshift", -0.1, 0.1, 1, c,
+      -TMath::Pi()/4.f + TMath::Pi()/2.f, TMath::Pi()/4.f + TMath::Pi()/2.f, false);
+  c.SaveAs(pdfFileName.c_str());
   PlotDCASlopeProjection3D("DCA/MFT/DCA_x_vs_slopex_vs_zshift", -0.1, 0.1, 1, c, false);
   c.SaveAs(pdfFileName.c_str());
 
-  //PlotDCAPhiProjection3D("DCA/MFT/DCA_y_vs_phi_vs_zshift", -0.1, 0.1, 1, c,
-  //    -TMath::Pi()/4.f, TMath::Pi()/4.f, false);
-  //c.SaveAs(pdfFileName.c_str());
+  PlotDCAPhiProjection3D("DCA/MFT/DCA_y_vs_phi_vs_zshift", -0.1, 0.1, 1, c,
+      -TMath::Pi()/4.f, TMath::Pi()/4.f, false);
+  c.SaveAs(pdfFileName.c_str());
   PlotDCASlopeProjection3D("DCA/MFT/DCA_y_vs_slopey_vs_zshift", -0.1, 0.1, 1, c, false);
   c.SaveAs(pdfFileName.c_str());
 

@@ -130,8 +130,8 @@ std::array<double, 4> FitDCA(TH1* proj, TCanvas& c)
 
   //return {xPeak, 0, 0, 0};
 
-  if (true) {
-    TF1 fgaus2("fgaus2", "gausn", xPeak - 0.02, xPeak + 0.02);
+  if (false) {
+    TF1 fgaus2("fgaus2", "gausn", xPeak - 0.1, xPeak + 0.1);
     fgaus2.SetParameter(1, xPeak);
     fgaus2.SetParameter(2, 0.02);
     fgaus2.SetParLimits(2, 0.01, 0.1);
@@ -142,7 +142,7 @@ std::array<double, 4> FitDCA(TH1* proj, TCanvas& c)
       xPeak = fgaus2.GetParameter(1);
     }
 
-    TF1 fcb("fgaus", "gausn", xPeak - 0.025, xPeak + 0.025);
+    TF1 fcb("fgaus", "gausn", xPeak - 0.1, xPeak + 0.1);
     fcb.SetNpx(1000);
     fcb.SetLineColor(kBlack);
     fcb.SetParameter(1, xPeak);
@@ -163,7 +163,7 @@ std::array<double, 4> FitDCA(TH1* proj, TCanvas& c)
       }
     }
   } else {
-    TF1 fcb("fcb", DoubleSidedCB, -0.1, 0.1, 7);
+    TF1 fcb("fcb", DoubleSidedCB, -0.5, 0.5, 7);
     fcb.SetNpx(1000);
     fcb.SetLineColor(kBlack);
     //fcb.SetParameter(0, valuePeak);
@@ -171,24 +171,23 @@ std::array<double, 4> FitDCA(TH1* proj, TCanvas& c)
     par[0]=35000;
     par[1]=xPeak;
     par[2]=0.02;
-    par[3]=1;
-    par[4]=1;
-    par[5]=1;
-    par[6]=1;
+    par[3]=0.7;
+    par[4]=12.;
+    par[5]=0.7;
+    par[6]=12.;
     fcb.SetParameters(&par[0]);
 
     fcb.FixParameter(1, xPeak);
-    fcb.FixParameter(2, 0.02);
-    fcb.SetParLimits(3, 0.01f, 2.f);
-    fcb.SetParLimits(5, 0.01f, 2.f);
-    fcb.SetParLimits(4, 0.5f, 10.f);
-    fcb.SetParLimits(6, 0.5f, 10.f);
-    //proj->Fit("fcb", "BRNQ");
-    fcb.ReleaseParameter(2);
-    fcb.SetParameter(2, 0.02);
-    fcb.SetParLimits(2, 0.01, 0.1);
+    //fcb.FixParameter(2, 0.02);
+    fcb.SetParameter(2, 0.2);
+    fcb.SetParLimits(2, 0.01, 1.5);
+    fcb.SetParLimits(3, 0.2f, 1.f);
+    fcb.SetParLimits(5, 0.2f, 1.f);
+    fcb.SetParLimits(4, 5.f, 20.f);
+    fcb.SetParLimits(6, 5.f, 20.f);
+    proj->Fit("fcb", "BRNQ");
     fcb.ReleaseParameter(1);
-    fcb.SetParameter(1, xPeak);
+    //fcb.SetParameter(1, xPeak);
     const char* fitOpt = "BRQS";
     TFitResultPtr fitResult = proj->Fit("fcb", fitOpt);
 
@@ -996,7 +995,7 @@ void ProcessDCAlayers(std::string coordinate, int layer, bool fired, TCanvas& c)
 
 void ProcessDCA(std::string coordinate, TCanvas& c, TCanvas& c2)
 {
-  const int xyRebin = 2;
+  const int xyRebin = 1;
 
   std::string fullHistName = taskName + "/DCA/MFT/DCA_" + coordinate;
   THnSparse* histogramFull = GetTHnSparse(fAnalysisResults, fullHistName);
@@ -1579,7 +1578,7 @@ void ProcessDCAGlobalFwd(std::string coordinate, TCanvas& c, TCanvas& c2)
   }
 }
 
-void muonGlobalAlignmentMftDCAoffs(const char* _rootFileName = "AnalysisResults.root", const char* _pdfFileName = "mftDCAoffs.pdf")
+void muonGlobalAlignmentMftDCAz(const char* _rootFileName = "AnalysisResults.root", const char* _pdfFileName = "mftDCAz.pdf")
 {
   //fAnalysisResults = new TFile("AnalysisResults.root");
   //fAnalysisResults = new TFile("AnalysisResults/AnalysisResultsFull.root");
@@ -1599,41 +1598,80 @@ void muonGlobalAlignmentMftDCAoffs(const char* _rootFileName = "AnalysisResults.
   c.SetGrid();
   c.SaveAs((pdfFileName + "(").c_str());
 
-  std::string fullHistName = taskName + "/vertex_y_vs_x";
-  auto h2 = GetTH2(fAnalysisResults, fullHistName);
-  if (h2) {
+  std::array<int, 4> colors{ kBlack, kRed, kBlue, kGreen + 2 };
+
+  std::string fullHistName = taskName + "/DCA/MFT/track-pairs/DCA_z";
+  auto h3 = GetTH3(fAnalysisResults, fullHistName);
+  if (h3) {
+    auto h2 = (TH2*)h3->Project3D("zx");
     h2->Draw("col");
     c.SaveAs(pdfFileName.c_str());
-  }
 
-  fullHistName = taskName + "/vertex_z";
-  auto h1 = GetTH1(fAnalysisResults, fullHistName);
-  if (h1) {
-    h1->Draw("HIST");
+    h2 = (TH2*)h3->Project3D("zy");
+    h2->Draw("col");
     c.SaveAs(pdfFileName.c_str());
-  }
 
-  TPaveText* title = new TPaveText(0.1, 0.4, 0.9, 0.6, "NDC");
+    TMultiGraph mgrMean;
+    TMultiGraph mgrSigma;
 
-  std::array<std::string, 2> coordinates{"x", "y"};
-  //std::array<std::string, 2> coordinates{"x"};
-  for (auto& coordinate : coordinates) {
-    c.Clear();
-    title->Clear();
-    title->AddText(TString::Format("DCA(%s) offset vs. track XY", coordinate.c_str()));
-    title->AddText("Integrated over vertex z");
-    title->Draw();
-    c.SaveAs(pdfFileName.c_str());
-    ProcessDCA(coordinate, c, c2);
-    ProcessDCAGlobalFwd(coordinate, c, c2);
-    for (int l = 0; l < 1; l++) {
-      //ProcessDCA(coordinate, l, false, c);
-      //ProcessDCA(coordinate, l, true, c);
+    TLegend legendMean(0.6, 0.7, 0.9, 0.9);
+    TLegend legendSigma(0.6, 0.7, 0.9, 0.9);
+
+    int zBinDelta = 5;
+    int index = 0;
+    for (int zbin = 1; zbin <= h3->GetXaxis()->GetNbins(); zbin += zBinDelta, index++) {
+      h3->GetXaxis()->SetRange(zbin, zbin + zBinDelta - 1);
+
+      TGraph* grMean = new TGraph;
+      if (index < 4) {
+        grMean->SetMarkerColor(colors[index]);
+        grMean->SetLineColor(colors[index]);
+      }
+      TGraph* grSigma = new TGraph;
+      if (index < 4) {
+        grSigma->SetMarkerColor(colors[index]);
+        grSigma->SetLineColor(colors[index]);
+      }
+
+      h2 = (TH2*)h3->Project3D("zy");
+      for (int bin = 1; bin <= h2->GetXaxis()->GetNbins(); bin++) {
+        TH1* proj = (TH1*)h2->ProjectionY(std::format("DCA_z_{}_{}", zbin, bin).c_str(), bin, bin);
+        proj->SetTitle(std::format("DCA(z) zbin={} bin={}", zbin, bin).c_str());
+        c.cd();
+        proj->Draw();
+        auto fitResult = FitDCA(proj, c);
+        c.SaveAs(pdfFileName.c_str());
+
+        if (!std::isnan(fitResult[0]) && !std::isnan(fitResult[2])) {
+          grMean->AddPoint(h2->GetXaxis()->GetBinCenter(bin), fitResult[0]);
+          grSigma->AddPoint(h2->GetXaxis()->GetBinCenter(bin), fitResult[2]);
+        }
+      }
+      mgrMean.Add(grMean);
+      mgrSigma.Add(grSigma);
+
+      legendMean.AddEntry(grMean, std::format("{:0.2f} < vz < {:0.2f}", h3->GetXaxis()->GetBinLowEdge(zbin), h3->GetXaxis()->GetBinUpEdge(zbin + zBinDelta - 1)).c_str(), "l");
+      legendSigma.AddEntry(grSigma, std::format("{:0.2f} < vz < {:0.2f}", h3->GetXaxis()->GetBinLowEdge(zbin), h3->GetXaxis()->GetBinUpEdge(zbin + zBinDelta - 1)).c_str(), "l");
     }
-    //break;
+    mgrMean.Draw("AL*");
+    mgrMean.GetXaxis()->SetTitle("angle between tracks (rad)");
+    mgrMean.GetYaxis()->SetTitle("DCAz (cm)");
+    mgrMean.SetMinimum(-0.2);
+    mgrMean.SetMaximum(0.2);
+    legendMean.Draw();
+    c.SaveAs(pdfFileName.c_str());
+    mgrMean.SetMinimum(-0.05);
+    mgrMean.SetMaximum(0.05);
+    legendMean.Draw();
+    c.SaveAs(pdfFileName.c_str());
+    mgrSigma.Draw("AL*");
+    mgrSigma.GetXaxis()->SetTitle("angle between tracks (rad)");
+    mgrSigma.GetYaxis()->SetTitle("#sigma(DCAz) (cm)");
+    mgrSigma.SetMinimum(0);
+    mgrSigma.SetMaximum(1.0);
+    legendSigma.Draw();
+    c.SaveAs(pdfFileName.c_str());
   }
-  //ProcessDCA("x", c);
-  //ProcessDCA("y", 9, false, c);
 
   c.Clear();
   c.SaveAs((pdfFileName + ")").c_str());
