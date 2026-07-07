@@ -19,7 +19,8 @@ std::vector<matchType> matchTypesVec = {
 const std::array<std::string, 3> matchingMethods{
     "Prod",
     "XGBOOSTv1",
-    "MatchXYPhiTanlMom"
+    "XGBOOSTv3"
+    //"XGBOOSTPbPbv1"
   };
 
 TH1* GetTH1(TFile* f, TString histname)
@@ -419,6 +420,7 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
   c.Clear();
   c.SetLogy(kFALSE);
   float max = 0;
+  float min = std::numeric_limits<float>::max();
   // matching score distributions
   std::vector<TH1*> h1vec;
   // cumulative distributions
@@ -447,6 +449,9 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
     if (h1->GetMaximum() > max) {
       max = h1->GetMaximum();
     }
+    if (h1->GetMinimum() > 0 && h1->GetMinimum() < min) {
+      min = h1->GetMinimum();
+    }
     h1vec.push_back(h1);
 
     TH1F* ch1 = (TH1F*)h1->Clone();
@@ -465,6 +470,7 @@ void MatchingScoreCompareVsVariable(TFile* rootFile,
     hist->SetLineColor(i + 1);
     if (i == 0) {
       hist->SetMaximum(5.f * max);
+      hist->SetMinimum((min > 0) ? (0.5f * min) : 0.5f);
       hist->Draw("HIST");
     } else {
       hist->Draw("HIST SAME");
@@ -679,10 +685,14 @@ void PlotInvmassForMatchTypes(TFile* rootFile, std::vector<int> types)
 
   c.Clear();
 
+  float massMin = 2.5;
+  float massMax = 4.5;
+
   TH2* h2 = GetTH2(rootFile, "qa-matching/dimuon/MC/invariantMass_MuonKine_GlobalMuonCuts_vs_match_type");
   TH1* h1 = GetInvmassForMatchTypes(h2, types);
   if (h1) {
     h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->GetXaxis()->SetRangeUser(massMin, massMax);
     h1->Draw();
     c.SaveAs("matchingQA.pdf");
   }
@@ -691,6 +701,7 @@ void PlotInvmassForMatchTypes(TFile* rootFile, std::vector<int> types)
   h1 = GetInvmassForMatchTypes(h2, types);
   if (h1) {
     h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->GetXaxis()->SetRangeUser(massMin, massMax);
     h1->Draw();
     c.SaveAs("matchingQA.pdf");
   }
@@ -699,6 +710,7 @@ void PlotInvmassForMatchTypes(TFile* rootFile, std::vector<int> types)
   h1 = GetInvmassForMatchTypes(h2, types);
   if (h1) {
     h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->GetXaxis()->SetRangeUser(massMin, massMax);
     h1->Draw();
     c.SaveAs("matchingQA.pdf");
   }
@@ -707,6 +719,7 @@ void PlotInvmassForMatchTypes(TFile* rootFile, std::vector<int> types)
   h1 = GetInvmassForMatchTypes(h2, types);
   if (h1) {
     h1->SetTitle(TString::Format("%s, type = %s", h2->GetTitle(), typesstr.c_str()));
+    h1->GetXaxis()->SetRangeUser(massMin, massMax);
     h1->Draw();
     c.SaveAs("matchingQA.pdf");
   }
@@ -765,6 +778,7 @@ void MatchTypePlot(TFile* rootFile, std::string histName, std::string method, st
     hist->SetLineColor(i + 1);
     if (i == 0) {
       hist->SetMaximum(10.f * max);
+      hist->SetMinimum(0.1f);
       hist->Draw();
     } else {
       hist->Draw("same");
@@ -772,7 +786,11 @@ void MatchTypePlot(TFile* rootFile, std::string histName, std::string method, st
     legend->AddEntry(hist, matchTypesVec[i].name.c_str(), "l");
   }
   legend->Draw();
+  c.SetLogy(kFALSE);
+  h1vec[0]->SetMaximum(1.05f * max);
+  c.SaveAs("matchingQA.pdf");
   c.SetLogy(kTRUE);
+  h1vec[0]->SetMaximum(10.f * max);
   c.SaveAs("matchingQA.pdf");
   c.SetLogy(kFALSE);
 
